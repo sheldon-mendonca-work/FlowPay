@@ -1,0 +1,182 @@
+name: "flowpay-infra"
+
+services:
+
+  # ----------------------------
+  # 🐘 PostgreSQL
+  # ----------------------------
+  postgres:
+    image: postgres:15
+    container_name: flowpay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------
+  # 🔴 Redis
+  # ----------------------------
+  redis:
+    image: redis:7
+    container_name: flowpay-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+
+  # ----------------------------
+  # 📨 Kafka
+  # ----------------------------
+  kafka:
+    image: apache/kafka:latest
+    container_name: flowpay-kafka
+    restart: unless-stopped
+
+    environment:
+      KAFKA_PROCESS_ROLES: "controller,broker"
+      KAFKA_NODE_ID: "1"
+      KAFKA_CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+      KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://192.168.0.161:9094"
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+
+    ports:
+      - "9092:9092"
+      - "9094:9094"
+
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+  
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    ports:
+      - 8080:8080
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      - kafka
+      
+  kafka-init:
+    image: apache/kafka:latest
+    depends_on:
+      kafka:
+        condition: service_started
+
+    volumes:
+      - ./infra/topics.yaml:/config/topics.yaml
+
+    entrypoint: ["/bin/sh", "-c"]
+    command: |
+      echo 'Waiting for Kafka...'
+      until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
+        sleep 2
+      done
+      echo 'Creating topics from YAML...'
+      topic_name=''
+      partitions=''
+      while IFS= read -r line; do
+        case "$line" in
+          *"- name:"*)
+            topic_name=$(echo "$line" | awk -F': ' '{print $2}')
+            ;;
+          *"partitions:"*)
+            partitions=$(echo "$line" | awk -F': ' '{print $2}')
+            if [ -n "$topic_name" ] && [ -n "$partitions" ]; then
+              echo "Creating topic: $topic_name"
+              /opt/kafka/bin/kafka-topics.sh \
+                --bootstrap-server kafka:9092 \
+                --create \
+                --if-not-exists \
+                --topic "$topic_name" \
+                --partitions "$partitions" \
+                --replication-factor 1
+            fi
+            ;;
+        esac
+      done < /config/topics.yaml
+      echo 'Topics ready'
+  
+  # ----------------------------
+  # 📊 Prometheus
+  # ----------------------------
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: flowpay-prometheus
+    restart: unless-stopped
+    ports:
+      - "9090:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    depends_on:
+      - postgres
+
+  # ----------------------------
+  # 📈 Grafana
+  # ----------------------------
+  grafana:
+    image: grafana/grafana:latest
+    container_name: flowpay-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  # ----------------------------
+  # 🔍 Jaeger (Tracing)
+  # ----------------------------
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: flowpay-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"   # UI
+      - "6831:6831/udp" # agent
+      - "4318:4318"     # OTLP HTTP
+
+volumes:
+  postgres_data:
+  redis_data:
+  grafana_data:
+  kafka_data:

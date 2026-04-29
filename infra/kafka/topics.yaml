@@ -1,0 +1,7 @@
+topics:
+  - name: payment.events
+    partitions: 3
+  - name: ledger.events
+    partitions: 3
+  - name: wallet.events
+    partitions: 3
