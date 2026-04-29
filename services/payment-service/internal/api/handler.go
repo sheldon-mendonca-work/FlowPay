@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
 
 	"flowpay/payment-service/internal/constants"
 	"flowpay/payment-service/internal/dto"
+	flowpayPaymentErrors "flowpay/payment-service/internal/errors"
 	"flowpay/payment-service/internal/service"
 	"flowpay/pkg/observability/logger"
 )
@@ -29,37 +31,50 @@ func WriteJSONError(w http.ResponseWriter, message string, status int) {
 	})
 }
 
-func validatePaymentRequest(req dto.PaymentRequestDTO) string {
+func paymentErrorResponse(err error) (string, int) {
+	switch {
+	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyMismatch):
+		return flowpayPaymentErrors.ErrIdempotencyMismatch.Error(), http.StatusConflict
+	case errors.Is(err, context.DeadlineExceeded):
+		return flowpayPaymentErrors.ErrPaymentRequestTimedOut.Error(), http.StatusGatewayTimeout
+	case errors.Is(err, context.Canceled):
+		return flowpayPaymentErrors.ErrPaymentRequestCanceled.Error(), http.StatusRequestTimeout
+	default:
+		return flowpayPaymentErrors.ErrCreatePaymentFailed.Error(), http.StatusInternalServerError
+	}
+}
+
+func validatePaymentRequest(req dto.PaymentRequestDTO) error {
 	if strings.TrimSpace(req.UserID) == "" {
-		return "user_id is required"
+		return flowpayPaymentErrors.ErrUserIDRequired
 	}
 	if req.Amount <= 0 {
-		return "amount must be greater than 0"
+		return flowpayPaymentErrors.ErrAmountMustBeGreaterThanZero
 	}
 	if strings.TrimSpace(req.Currency) == "" {
-		return "currency is required"
+		return flowpayPaymentErrors.ErrCurrencyRequired
 	}
 	if strings.TrimSpace(req.IdempotencyKey) == "" {
-		return "idempotency_key is required"
+		return flowpayPaymentErrors.ErrIdempotencyKeyRequired
 	}
 
-	return ""
+	return nil
 }
 
 func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
 		return
 	}
 
 	var req dto.PaymentRequestDTO
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		WriteJSONError(w, "invalid request body", http.StatusBadRequest)
+		WriteJSONError(w, flowpayPaymentErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
 		return
 	}
 
-	if validationError := validatePaymentRequest(req); validationError != "" {
-		WriteJSONError(w, validationError, http.StatusBadRequest)
+	if validationError := validatePaymentRequest(req); validationError != nil {
+		WriteJSONError(w, validationError.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -68,8 +83,17 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.paymentService.CreatePayment(ctx, req)
 	if err != nil {
-		logger.LogWithRequest(r.Context(), constants.ServiceName, "create payment failed: %v", err)
-		WriteJSONError(w, "failed to create payment", http.StatusInternalServerError)
+		message, status := paymentErrorResponse(err)
+		logger.LogWithRequest(
+			r.Context(),
+			constants.ServiceName,
+			"create payment failed status=%d user_id=%s idempotency_key=%s error=%v",
+			status,
+			req.UserID,
+			req.IdempotencyKey,
+			err,
+		)
+		WriteJSONError(w, message, status)
 		return
 	}
 

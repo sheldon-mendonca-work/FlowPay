@@ -8,7 +8,9 @@ import (
 
 	"flowpay/payment-service/internal/domain"
 	"flowpay/payment-service/internal/dto"
+	flowpayPaymentErrors "flowpay/payment-service/internal/errors"
 	"flowpay/payment-service/internal/types"
+	paymentServiceUtils "flowpay/payment-service/internal/utils"
 	"flowpay/pkg/utils"
 )
 
@@ -49,6 +51,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 	if utils.IsUniqueViolation(err) {
 		existingPayment, getErr := s.repository.GetPaymentByIdempotencyKey(ctx, payment.IdempotencyKey)
+		if getErr == nil && !paymentServiceUtils.CheckPaymentPayloadIsMatching(existingPayment, payment) {
+			return dto.PaymentResponseDTO{}, fmt.Errorf("%w: idempotency_key=%s", flowpayPaymentErrors.ErrIdempotencyMismatch, payment.IdempotencyKey)
+		}
 		if getErr != nil {
 			return dto.PaymentResponseDTO{}, getErr
 		}
