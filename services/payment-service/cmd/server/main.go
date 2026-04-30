@@ -28,8 +28,11 @@ func main() {
 	// kafkaWriter := infra.InitKafka()
 	db := infra.InitDB()
 	paymentRepository := repository.NewPaymentRepository(db)
+	transactionRepository := repository.NewTransactionRepository(db)
+	paymentIdempotencyRepository := repository.NewPaymentIdempotencyRepository(db)
+	accountRepository := repository.NewAccountRepository(db)
 
-	paymentService := service.NewPaymentService(paymentRepository)
+	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository)
 	handler := api.NewHandler(paymentService)
 
 	// defer kafkaWriter.Close()

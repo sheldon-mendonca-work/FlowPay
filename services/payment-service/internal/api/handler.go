@@ -44,9 +44,15 @@ func paymentErrorResponse(err error) (string, int) {
 	}
 }
 
-func validatePaymentRequest(req dto.PaymentRequestDTO) error {
-	if strings.TrimSpace(req.UserID) == "" {
-		return flowpayPaymentErrors.ErrUserIDRequired
+func validatePaymentRequest(req dto.PaymentRequestDTO, reqIdempotencyKey string) error {
+	if strings.TrimSpace(req.SenderID) == "" {
+		return flowpayPaymentErrors.ErrSenderIDRequired
+	}
+	if strings.TrimSpace(req.ReceiverID) == "" {
+		return flowpayPaymentErrors.ErrSenderIDRequired
+	}
+	if strings.TrimSpace(req.ReceiverID) == strings.TrimSpace(req.SenderID) {
+		return flowpayPaymentErrors.ErrSenderIDRequired
 	}
 	if req.Amount <= 0 {
 		return flowpayPaymentErrors.ErrAmountMustBeGreaterThanZero
@@ -54,7 +60,7 @@ func validatePaymentRequest(req dto.PaymentRequestDTO) error {
 	if strings.TrimSpace(req.Currency) == "" {
 		return flowpayPaymentErrors.ErrCurrencyRequired
 	}
-	if strings.TrimSpace(req.IdempotencyKey) == "" {
+	if strings.TrimSpace(reqIdempotencyKey) == "" {
 		return flowpayPaymentErrors.ErrIdempotencyKeyRequired
 	}
 
@@ -62,18 +68,23 @@ func validatePaymentRequest(req dto.PaymentRequestDTO) error {
 }
 
 func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
+	//  Check Method is Correct
 	if r.Method != http.MethodPost {
 		WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
 		return
 	}
 
+	// Decode the Request
 	var req dto.PaymentRequestDTO
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		WriteJSONError(w, flowpayPaymentErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
 		return
 	}
+	// Read the idempotency key
+	reqIdempotencyKey := r.Header.Get("Idempotency-Key")
 
-	if validationError := validatePaymentRequest(req); validationError != nil {
+	// Validate the request content
+	if validationError := validatePaymentRequest(req, reqIdempotencyKey); validationError != nil {
 		WriteJSONError(w, validationError.Error(), http.StatusBadRequest)
 		return
 	}
@@ -81,23 +92,25 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	resp, err := h.paymentService.CreatePayment(ctx, req)
+	// Call the service method for handling this
+	resp, err := h.paymentService.CreatePayment(ctx, req, reqIdempotencyKey)
 	if err != nil {
 		message, status := paymentErrorResponse(err)
 		logger.LogWithRequest(
 			r.Context(),
 			constants.ServiceName,
-			"create payment failed status=%d user_id=%s idempotency_key=%s error=%v",
+			"create payment failed status=%d sender_id=%s receiver_id=%s idempotency_key=%s error=%v",
 			status,
-			req.UserID,
-			req.IdempotencyKey,
+			req.SenderID,
+			req.ReceiverID,
+			reqIdempotencyKey,
 			err,
 		)
 		WriteJSONError(w, message, status)
 		return
 	}
 
-	logger.LogWithRequest(r.Context(), constants.ServiceName, "payment accepted for user_id=%s idempotency_key=%s", req.UserID, req.IdempotencyKey)
+	logger.LogWithRequest(r.Context(), constants.ServiceName, "payment accepted for id=%s sender_id=%s receiver_id=%s idempotency_key=%s", resp.PaymentID, req.SenderID, req.ReceiverID, reqIdempotencyKey)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
