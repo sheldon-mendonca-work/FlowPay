@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"flowpay/payment-service/internal/constants"
 	"flowpay/payment-service/internal/domain"
@@ -19,6 +20,7 @@ import (
 
 type PaymentRepository interface {
 	CreatePayment(tx *sql.Tx, ctx context.Context, payment domain.Payment) error
+	GetPaymentByIdempotencyKey(ctx context.Context, key string) (domain.Payment, error)
 }
 
 type AccountRepository interface {
@@ -31,9 +33,9 @@ type TransactionRepository interface {
 }
 
 type PaymentIdempotencyRepository interface {
-	TryCreateOrGet(ctx context.Context, idempotency domain.PaymentIdempotencyKey) (domain.PaymentIdempotencyKey, bool, error)
-	MarkCompleted(ctx context.Context, idempotencyKey string, responseBody string) error
-	MarkFailed(ctx context.Context, idempotencyKey string, errorCode string, errorMessage string) error
+	ClaimOrGet(ctx context.Context, idempotency domain.PaymentIdempotencyKey) (domain.PaymentIdempotencyKey, bool, error)
+	MarkCompleted(tx *sql.Tx, ctx context.Context, idempotencyKey string, responseBody string, paymentID string, ownerToken string) error
+	MarkFailed(tx *sql.Tx, ctx context.Context, idempotencyKey string, errorCode string, errorMessage string, ownerToken string) error
 }
 
 type PaymentService struct {
@@ -131,6 +133,14 @@ func shouldPersistFailedIdempotency(err error) bool {
 	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
 }
 
+func isDeterministicBusinessFailure(err error) bool {
+	return shouldPersistFailedIdempotency(err)
+}
+
+func leaseExpiryFromNow() time.Time {
+	return time.Now().UTC().Add(30 * time.Second)
+}
+
 func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string) (dto.PaymentResponseDTO, error) {
 	reqAsBytes, err := json.Marshal(req)
 	if err != nil {
@@ -141,18 +151,25 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		return dto.PaymentResponseDTO{}, fmt.Errorf("failed to compute hash: %w", err)
 	}
 
+	ownerToken, err := newPaymentID()
+	if err != nil {
+		return dto.PaymentResponseDTO{}, err
+	}
+
 	idempotencyPayload := domain.PaymentIdempotencyKey{
 		IdempotencyKey: idempotencyKey,
 		RequestHash:    payloadHash,
 		Status:         "IN_PROGRESS",
+		OwnerToken:     ownerToken,
+		LockedUntil:    leaseExpiryFromNow(),
 	}
-	existingIdempotency, idempotencyKeyCreated, err := s.paymentIdempotencyRepository.TryCreateOrGet(ctx, idempotencyPayload)
+	existingIdempotency, idempotencyClaimed, err := s.paymentIdempotencyRepository.ClaimOrGet(ctx, idempotencyPayload)
 	if err != nil {
-		logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_create_or_get", err)
+		logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_claim_or_get", err)
 		return dto.PaymentResponseDTO{}, err
 	}
 
-	if !idempotencyKeyCreated {
+	if !idempotencyClaimed {
 		if existingIdempotency.RequestHash != payloadHash {
 			logger.LogEvent(ctx, "WARN", constants.ServiceName, "payment_idempotency_mismatch", logger.Fields{
 				"idempotency_key": idempotencyKey,
@@ -230,7 +247,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		}
 	}()
 
-	markFailed := func(step string, err error) (dto.PaymentResponseDTO, error) {
+	rollbackTechnicalFailure := func(step string, err error) (dto.PaymentResponseDTO, error) {
 		rollbackDueToError = true
 		logPaymentStepFailure(ctx, req, idempotencyKey, step, err)
 
@@ -255,27 +272,25 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 			})
 		}
 		txClosed = true
+		return dto.PaymentResponseDTO{}, err
+	}
 
-		if shouldPersistFailedIdempotency(err) {
-			if persistErr := s.paymentIdempotencyRepository.MarkFailed(ctx, idempotencyKey, flowpayPaymentErrors.ToPaymentErrorType(err), err.Error()); persistErr != nil {
-				logger.LogEvent(ctx, "ERROR", constants.ServiceName, "idempotency_mark_failed_failed", logger.Fields{
-					"idempotency_key": idempotencyKey,
-					"sender_id":       req.SenderID,
-					"receiver_id":     req.ReceiverID,
-					"amount":          req.Amount,
-					"currency":        req.Currency,
-					"error_type":      flowpayPaymentErrors.ErrorTypeDBFailure,
-					"error":           persistErr.Error(),
-				})
-			}
+	markFailedAndCommit := func(step string, err error) (dto.PaymentResponseDTO, error) {
+		rollbackDueToError = true
+		logPaymentStepFailure(ctx, req, idempotencyKey, step, err)
+		if markErr := s.paymentIdempotencyRepository.MarkFailed(tx, ctx, idempotencyKey, flowpayPaymentErrors.ToPaymentErrorType(err), err.Error(), ownerToken); markErr != nil {
+			return rollbackTechnicalFailure(step+"_mark_failed", markErr)
 		}
-
+		if commitErr := tx.Commit(); commitErr != nil {
+			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
+		}
+		txClosed = true
 		return dto.PaymentResponseDTO{}, err
 	}
 
 	accounts, err := s.accountRepository.GetAccountsBySenderReceiverId(ctx, tx, req.SenderID, req.ReceiverID)
 	if err != nil {
-		return markFailed("account_lock_and_load", err)
+		return rollbackTechnicalFailure("account_lock_and_load", err)
 	}
 	senderUser := accounts[req.SenderID]
 	receiverUser := accounts[req.ReceiverID]
@@ -283,50 +298,62 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 	err = validateSenderAndReceiverAccounts(accounts, req, amount)
 	if err != nil {
-		return markFailed("account_validation", err)
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("account_validation", err)
+		}
+		return rollbackTechnicalFailure("account_validation", err)
 	}
 
 	err = s.accountRepository.UpdateBalanceForSenderAndReceiver(tx, ctx, senderUser.ID, receiverUser.ID, amount)
 	if err != nil {
-		return markFailed("account_balance_update", err)
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("account_balance_update", err)
+		}
+		return rollbackTechnicalFailure("account_balance_update", err)
 	}
 	logger.LogPlain(ctx, constants.ServiceName, "updated balances sender_id=%s receiver_id=%s amount=%d", senderUser.ID, receiverUser.ID, amount)
 
 	payment := domain.Payment{
-		ID:         paymentID,
-		SenderID:   senderUser.ID,
-		ReceiverID: receiverUser.ID,
-		Amount:     amount,
-		Currency:   req.Currency,
-		Status:     string(types.SUCCESS),
+		ID:             paymentID,
+		IdempotencyKey: idempotencyKey,
+		SenderID:       senderUser.ID,
+		ReceiverID:     receiverUser.ID,
+		Amount:         amount,
+		Currency:       req.Currency,
+		Status:         string(types.SUCCESS),
 	}
 
 	err = s.paymentRepository.CreatePayment(tx, ctx, payment)
 	if err != nil {
-		return markFailed("payment_insert", err)
+		return rollbackTechnicalFailure("payment_insert", err)
 	}
 	logger.LogPlain(ctx, constants.ServiceName, "inserted payment row payment_id=%s sender_id=%s receiver_id=%s amount=%d", payment.ID, payment.SenderID, payment.ReceiverID, payment.Amount)
 
 	senderTransaction, err := generateSenderTransaction(payment)
 	if err != nil {
-		return markFailed("sender_transaction_generate", err)
+		return rollbackTechnicalFailure("sender_transaction_generate", err)
 	}
 	receiverTransaction, err := generateReceiverTransaction(payment)
 	if err != nil {
-		return markFailed("receiver_transaction_generate", err)
+		return rollbackTechnicalFailure("receiver_transaction_generate", err)
 	}
 
 	err = s.transactionRepository.CreateTransactionsForSenderAndReceiver(tx, ctx, senderTransaction, receiverTransaction)
 	if err != nil {
-		return markFailed("transaction_insert", err)
+		return rollbackTechnicalFailure("transaction_insert", err)
 	}
 	logger.LogPlain(ctx, constants.ServiceName, "added transaction entries payment_id=%s sender_tx_id=%s receiver_tx_id=%s", payment.ID, senderTransaction.ID, receiverTransaction.ID)
 
 	response := toPaymentResponse(payment)
 	responseBody, err := json.Marshal(response)
 	if err != nil {
-		return markFailed("idempotency_response_encode", fmt.Errorf("encode idempotency response: %w", err))
+		return rollbackTechnicalFailure("idempotency_response_encode", fmt.Errorf("encode idempotency response: %w", err))
 	}
+
+	if err := s.paymentIdempotencyRepository.MarkCompleted(tx, ctx, idempotencyKey, string(responseBody), payment.ID, ownerToken); err != nil {
+		return rollbackTechnicalFailure("idempotency_mark_completed", err)
+	}
+	logger.LogPlain(ctx, constants.ServiceName, "marked idempotency completed idempotency_key=%s payment_id=%s", idempotencyKey, payment.ID)
 
 	if err := tx.Commit(); err != nil {
 		rollbackDueToError = true
@@ -344,12 +371,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
 	})
 	logger.LogPlain(ctx, constants.ServiceName, "committed payment transaction payment_id=%s idempotency_key=%s", payment.ID, idempotencyKey)
-
-	if err := s.paymentIdempotencyRepository.MarkCompleted(ctx, idempotencyKey, string(responseBody)); err != nil {
-		logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_mark_completed", err)
-		return dto.PaymentResponseDTO{}, err
-	}
-	logger.LogPlain(ctx, constants.ServiceName, "marked idempotency completed idempotency_key=%s payment_id=%s", idempotencyKey, payment.ID)
 
 	return response, nil
 }

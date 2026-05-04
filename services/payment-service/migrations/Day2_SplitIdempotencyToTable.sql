@@ -1,8 +1,5 @@
 -- Day2_SplitIdempotencyToTable.sql
 
--- Remove idempotencyId column from payments column
-ALTER TABLE payments DROP COLUMN idempotency_key;
-
 -- migration to uuid strategy:
 -- 1. we do this in golang
 -- 2. for each user_id in payments table, we create a set of user ids and assign a uuid for each user.
@@ -10,7 +7,7 @@ ALTER TABLE payments DROP COLUMN idempotency_key;
 
 -- however, since we dont have receiver_id, we'll just truncate the table
 -- In production, this would require a backward-compatible migration instead of truncation
-TRUNCATE TABLE payments CASCADE;
+-- TRUNCATE TABLE payments CASCADE;
 
 
 -- Change user id in payments to sender id. Also add receiver id
@@ -20,9 +17,12 @@ ALTER TABLE payments ADD receiver_id UUID NOT NULL;
 ALTER TABLE payments RENAME COLUMN payment_id TO id;
 ALTER TABLE payments ALTER COLUMN sender_id SET NOT NULL;
 ALTER TABLE payments ALTER COLUMN status SET DEFAULT 'PENDING';
+ALTER TABLE payments ALTER COLUMN idempotency_key SET NOT NULL;
 ALTER TABLE payments
 ADD CONSTRAINT chk_payment_status 
 CHECK (status IN ('PENDING', 'SUCCESS', 'FAILED'));
+ALTER TABLE payments
+ADD CONSTRAINT uq_payments_idempotency_key UNIQUE (idempotency_key);
 
 -- create accouunts table
 CREATE TABLE accounts (
@@ -42,6 +42,10 @@ CREATE TABLE idempotency_keys (
     status TEXT NOT NULL CHECK (status IN ('IN_PROGRESS', 'COMPLETED', 'FAILED')),
     error_code TEXT,
     error_message TEXT,
+    owner_token TEXT,
+    payment_id UUID,
+    locked_until TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

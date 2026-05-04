@@ -19,6 +19,7 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 	query := `
 		INSERT INTO payments (
 			id,
+			idempotency_key,
 			sender_id,
 			receiver_id,
 			amount,
@@ -26,13 +27,14 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 			status,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
 		 ON CONFLICT (id) DO NOTHING;
 	`
 
 	res, err := tx.ExecContext(ctx,
 		query,
 		payment.ID,
+		payment.IdempotencyKey,
 		payment.SenderID,
 		payment.ReceiverID,
 		payment.Amount,
@@ -51,25 +53,34 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 	return nil
 }
 
-// func (r *PaymentRepository) GetPaymentByIdempotencyKey(ctx context.Context, key string) (domain.PaymentIdempotencyKey, error) {
-// 	query := `
-// 		SELECT
-// 			idempotency_key,
-// 			request_hash,
-// 			response_body,
-// 			status,
-// 			created_at,
-// 		FROM payments WHERE idempotency_key = $1;
-// 	`
+func (r *PaymentRepository) GetPaymentByIdempotencyKey(ctx context.Context, key string) (domain.Payment, error) {
+	query := `
+		SELECT
+			id,
+			idempotency_key,
+			sender_id,
+			receiver_id,
+			amount,
+			currency,
+			status,
+			created_at,
+			updated_at
+		FROM payments
+		WHERE idempotency_key = $1;
+	`
 
-// 	var p domain.PaymentIdempotencyKey
-// 	err := r.db.QueryRowContext(ctx, query, key).Scan(
-// 		&p.IdempotencyKey,
-// 		&p.RequestHash,
-// 		&p.ResponseBody,
-// 		&p.Status,
-// 		&p.CreatedAt,
-// 	)
+	var payment domain.Payment
+	err := r.db.QueryRowContext(ctx, query, key).Scan(
+		&payment.ID,
+		&payment.IdempotencyKey,
+		&payment.SenderID,
+		&payment.ReceiverID,
+		&payment.Amount,
+		&payment.Currency,
+		&payment.Status,
+		&payment.CreatedAt,
+		&payment.UpdatedAt,
+	)
 
-// 	return p, err
-// }
+	return payment, err
+}
