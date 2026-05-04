@@ -226,17 +226,7 @@ for i in {1..5}; do curl ... & done
 
 * Day 2:
 
-  * Kafka integration (event-driven flow)
   * Transaction Processor service
   * Async consistency model
 
 ---
-
-## 🧠 Interview Positioning
-
-This project demonstrates:
-
-* Strong backend fundamentals
-* Distributed system thinking
-* Failure handling and recovery
-* Real-world payment system design patterns
