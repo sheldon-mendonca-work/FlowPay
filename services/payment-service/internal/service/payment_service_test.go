@@ -1,97 +1,327 @@
 package service
 
-// import (
-// 	"context"
-// 	"errors"
-// 	"fmt"
-// 	"testing"
+import (
+	"flowpay/payment-service/internal/domain"
+	"flowpay/payment-service/internal/dto"
+	"flowpay/payment-service/internal/types"
+	"testing"
+)
 
-// 	"flowpay/payment-service/internal/domain"
-// 	"flowpay/payment-service/internal/dto"
-// 	flowpayPaymentErrors "flowpay/payment-service/internal/errors"
-// )
+func TestValidateSenderAndReceiverAccounts_SameUser(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"sender": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  5000,
+			Currency: "INR",
+		},
+		"receiver": {
+			ID:       "sender",
+			UserID:   "user2",
+			Balance:  5000,
+			Currency: "INR",
+		},
+	}
 
-// func TestCreatePaymentReturnsTypedErrorForIdempotencyMismatch(t *testing.T) {
-// 	repo := &stubPaymentRepository{
-// 		existingPayment: domain.Payment{
-// 			PaymentID:      "pay_existing",
-// 			UserID:         "user-001",
-// 			Amount:         1000,
-// 			Currency:       "USD",
-// 			Status:         "CREATED",
-// 			IdempotencyKey: "idem-001",
-// 		},
-// 		createErr: fmt.Errorf("pq: duplicate key value violates unique constraint payments_idempotency_key_key"),
-// 	}
-// 	svc := NewPaymentService(repo)
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "sender",
+		Amount:     50,
+		Currency:   "INR",
+	}
 
-// 	_, err := svc.CreatePayment(context.Background(), dto.PaymentRequestDTO{
-// 		UserID:         "user-001",
-// 		Amount:         20.00,
-// 		Currency:       "USD",
-// 		IdempotencyKey: "idem-001",
-// 	})
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
 
-// 	if !errors.Is(err, flowpayPaymentErrors.ErrIdempotencyMismatch) {
-// 		t.Fatalf("expected ErrIdempotencyMismatch, got %v", err)
-// 	}
-// 	if repo.createCalls != 1 {
-// 		t.Fatalf("expected one create call, got %d", repo.createCalls)
-// 	}
-// 	if repo.getByKeyCalls != 1 {
-// 		t.Fatalf("expected one get-by-key call, got %d", repo.getByKeyCalls)
-// 	}
-// }
+	if err == nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_SameUser : expected error for same sender and receiver")
+	}
+}
 
-// func TestCreatePaymentReturnsExistingPaymentForMatchingDuplicate(t *testing.T) {
-// 	repo := &stubPaymentRepository{
-// 		existingPayment: domain.Payment{
-// 			PaymentID:      "pay_existing",
-// 			UserID:         "user-001",
-// 			Amount:         1000,
-// 			Currency:       "USD",
-// 			Status:         "CREATED",
-// 			IdempotencyKey: "idem-001",
-// 		},
-// 		createErr: fmt.Errorf("pq: duplicate key value violates unique constraint payments_idempotency_key_key"),
-// 	}
-// 	svc := NewPaymentService(repo)
+func TestValidateSenderAndReceiverAccounts_SenderAccountMissing(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"sender": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  5000,
+			Currency: "INR",
+		},
+	}
 
-// 	resp, err := svc.CreatePayment(context.Background(), dto.PaymentRequestDTO{
-// 		UserID:         "user-001",
-// 		Amount:         10.00,
-// 		Currency:       "USD",
-// 		IdempotencyKey: "idem-001",
-// 	})
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "receiver",
+		Amount:     50,
+		Currency:   "INR",
+	}
 
-// 	if err != nil {
-// 		t.Fatalf("expected no error, got %v", err)
-// 	}
-// 	if resp.PaymentID != "pay_existing" {
-// 		t.Fatalf("expected existing payment id, got %q", resp.PaymentID)
-// 	}
-// 	if repo.createCalls != 1 {
-// 		t.Fatalf("expected one create call, got %d", repo.createCalls)
-// 	}
-// 	if repo.getByKeyCalls != 1 {
-// 		t.Fatalf("expected one get-by-key call, got %d", repo.getByKeyCalls)
-// 	}
-// }
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
 
-// type stubPaymentRepository struct {
-// 	existingPayment domain.Payment
-// 	createErr       error
-// 	getByKeyErr     error
-// 	createCalls     int
-// 	getByKeyCalls   int
-// }
+	if err == nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_SenderAccountMissing: expected error for only sender")
+	}
+}
 
-// func (r *stubPaymentRepository) CreatePayment(_ context.Context, _ domain.Payment) error {
-// 	r.createCalls++
-// 	return r.createErr
-// }
+func TestValidateSenderAndReceiverAccounts_ReceiverAccountMissing(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"receiver": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  5000,
+			Currency: "INR",
+		},
+	}
 
-// func (r *stubPaymentRepository) GetPaymentByIdempotencyKey(_ context.Context, _ string) (domain.Payment, error) {
-// 	r.getByKeyCalls++
-// 	return r.existingPayment, r.getByKeyErr
-// }
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "receiver",
+		Amount:     50,
+		Currency:   "INR",
+	}
+
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
+
+	if err == nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_ReceiverAccountMissing: expected error for only receiver")
+	}
+}
+
+func TestValidateSenderAndReceiverAccounts_AccountCurrencyMismatch(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"sender": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  5000,
+			Currency: "INR",
+		},
+		"receiver": {
+			ID:       "receiver",
+			UserID:   "user2",
+			Balance:  5000,
+			Currency: "USD",
+		},
+	}
+
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "receiver",
+		Amount:     50,
+		Currency:   "INR",
+	}
+
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
+
+	if err == nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_AccountCurrencyMismatch : expected error for different currency", err)
+	}
+}
+
+func TestValidateSenderAndReceiverAccounts_RequestCurrencyMismatch(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"sender": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  5000,
+			Currency: "INR",
+		},
+		"receiver": {
+			ID:       "receiver",
+			UserID:   "user2",
+			Balance:  5000,
+			Currency: "INR",
+		},
+	}
+
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "receiver",
+		Amount:     50,
+		Currency:   "USD",
+	}
+
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
+
+	if err == nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_RequestCurrencyMismatch : expected error for different currency", err)
+	}
+}
+
+func TestValidateSenderAndReceiverAccounts_SenderBalanceInsufficient(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"sender": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  50,
+			Currency: "INR",
+		},
+		"receiver": {
+			ID:       "receiver",
+			UserID:   "user2",
+			Balance:  5000,
+			Currency: "INR",
+		},
+	}
+
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "receiver",
+		Amount:     5000,
+		Currency:   "INR",
+	}
+
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
+
+	if err == nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_SenderBalanceInsufficient : expected error for different currency", err)
+	}
+}
+
+func TestValidateSenderAndReceiverAccounts_ValidAccounts(t *testing.T) {
+	accounts := map[string]domain.Account{
+		"sender": {
+			ID:       "sender",
+			UserID:   "user1",
+			Balance:  10000,
+			Currency: "INR",
+		},
+		"receiver": {
+			ID:       "receiver",
+			UserID:   "user2",
+			Balance:  5000,
+			Currency: "INR",
+		},
+	}
+
+	req := dto.PaymentRequestDTO{
+		SenderID:   "sender",
+		ReceiverID: "receiver",
+		Amount:     50,
+		Currency:   "INR",
+	}
+
+	err := validateSenderAndReceiverAccounts(accounts, req, 5000)
+
+	if err != nil {
+		t.Fatal("TestValidateSenderAndReceiverAccounts_ValidAccounts: expected nil error for valid accounts")
+	}
+}
+
+func TestToPaymentResponse_MapsPaymentFields(t *testing.T) {
+	payment := domain.Payment{
+		ID:     "payment-123",
+		Status: string(types.SUCCESS),
+	}
+
+	response := toPaymentResponse(payment)
+
+	if response.PaymentID != payment.ID {
+		t.Fatalf("TestToPaymentResponse_MapsPaymentFields: expected payment id %s, got %s", payment.ID, response.PaymentID)
+	}
+
+	if response.Status != types.SUCCESS {
+		t.Fatalf("TestToPaymentResponse_MapsPaymentFields: expected status %s, got %s", types.SUCCESS, response.Status)
+	}
+}
+
+func TestNewPaymentID_GeneratesUUIDLikeValue(t *testing.T) {
+	paymentID, err := newPaymentID()
+
+	if err != nil {
+		t.Fatalf("TestNewPaymentID_GeneratesUUIDLikeValue: expected nil error, got %v", err)
+	}
+
+	if paymentID == "" {
+		t.Fatal("TestNewPaymentID_GeneratesUUIDLikeValue: expected non-empty payment id")
+	}
+
+	if len(paymentID) != 36 {
+		t.Fatalf("TestNewPaymentID_GeneratesUUIDLikeValue: expected id length 36, got %d", len(paymentID))
+	}
+}
+
+func TestGenerateSenderTransaction_BuildsDebitTransaction(t *testing.T) {
+	payment := domain.Payment{
+		ID:         "payment-123",
+		SenderID:   "sender-1",
+		ReceiverID: "receiver-1",
+		Amount:     5500,
+		Currency:   "INR",
+	}
+
+	transaction, err := generateSenderTransaction(payment)
+
+	if err != nil {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected nil error, got %v", err)
+	}
+
+	if transaction.ID == "" {
+		t.Fatal("TestGenerateSenderTransaction_BuildsDebitTransaction: expected transaction id to be generated")
+	}
+
+	if transaction.PaymentID != payment.ID {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected payment id %s, got %s", payment.ID, transaction.PaymentID)
+	}
+
+	if transaction.AccountID != payment.SenderID {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected account id %s, got %s", payment.SenderID, transaction.AccountID)
+	}
+
+	if transaction.Type != "DEBIT" {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected type DEBIT, got %s", transaction.Type)
+	}
+
+	if transaction.Amount != payment.Amount {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected amount %d, got %d", payment.Amount, transaction.Amount)
+	}
+
+	if transaction.Currency != payment.Currency {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected currency %s, got %s", payment.Currency, transaction.Currency)
+	}
+
+	if transaction.Status != "SUCCESS" {
+		t.Fatalf("TestGenerateSenderTransaction_BuildsDebitTransaction: expected status SUCCESS, got %s", transaction.Status)
+	}
+}
+
+func TestGenerateReceiverTransaction_BuildsCreditTransaction(t *testing.T) {
+	payment := domain.Payment{
+		ID:         "payment-123",
+		SenderID:   "sender-1",
+		ReceiverID: "receiver-1",
+		Amount:     5500,
+		Currency:   "INR",
+	}
+
+	transaction, err := generateReceiverTransaction(payment)
+
+	if err != nil {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected nil error, got %v", err)
+	}
+
+	if transaction.ID == "" {
+		t.Fatal("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected transaction id to be generated")
+	}
+
+	if transaction.PaymentID != payment.ID {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected payment id %s, got %s", payment.ID, transaction.PaymentID)
+	}
+
+	if transaction.AccountID != payment.ReceiverID {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected account id %s, got %s", payment.ReceiverID, transaction.AccountID)
+	}
+
+	if transaction.Type != "CREDIT" {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected type CREDIT, got %s", transaction.Type)
+	}
+
+	if transaction.Amount != payment.Amount {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected amount %d, got %d", payment.Amount, transaction.Amount)
+	}
+
+	if transaction.Currency != payment.Currency {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected currency %s, got %s", payment.Currency, transaction.Currency)
+	}
+
+	if transaction.Status != "SUCCESS" {
+		t.Fatalf("TestGenerateReceiverTransaction_BuildsCreditTransaction: expected status SUCCESS, got %s", transaction.Status)
+	}
+}

@@ -13,7 +13,7 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
-      - "5432:5432"
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -98,7 +98,7 @@ services:
         condition: service_started
 
     volumes:
-      - ./infra/topics.yaml:/config/topics.yaml
+      - ./topics.yaml:/config/topics.yaml
 
     entrypoint: ["/bin/sh", "-c"]
     command: |
@@ -110,20 +110,20 @@ services:
       topic_name=''
       partitions=''
       while IFS= read -r line; do
-        case "$line" in
+        case "$$line" in
           *"- name:"*)
-            topic_name=$(echo "$line" | awk -F': ' '{print $2}')
+            topic_name=$$(echo "$$line" | awk -F': ' '{print $$2}')
             ;;
           *"partitions:"*)
-            partitions=$(echo "$line" | awk -F': ' '{print $2}')
-            if [ -n "$topic_name" ] && [ -n "$partitions" ]; then
-              echo "Creating topic: $topic_name"
+            partitions=$$(echo "$$line" | awk -F': ' '{print $$2}')
+            if [ -n "$$topic_name" ] && [ -n "$$partitions" ]; then
+              echo "Creating topic: $$topic_name"
               /opt/kafka/bin/kafka-topics.sh \
                 --bootstrap-server kafka:9092 \
                 --create \
                 --if-not-exists \
-                --topic "$topic_name" \
-                --partitions "$partitions" \
+                --topic "$$topic_name" \
+                --partitions "$$partitions" \
                 --replication-factor 1
             fi
             ;;

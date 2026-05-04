@@ -19,9 +19,21 @@ func TestPaymentErrorResponse(t *testing.T) {
 		wantStatus int
 	}{
 		{
+			name:       "insufficient balance returns bad request",
+			err:        flowpayPaymentErrors.ErrInsufficientBalance,
+			wantBody:   "insufficient balance",
+			wantStatus: http.StatusBadRequest,
+		},
+		{
 			name:       "idempotency mismatch returns conflict",
 			err:        flowpayPaymentErrors.ErrIdempotencyMismatch,
 			wantBody:   "idempotency key reused with different payload",
+			wantStatus: http.StatusConflict,
+		},
+		{
+			name:       "idempotency in progress returns conflict",
+			err:        flowpayPaymentErrors.ErrIdempotencyInProgress,
+			wantBody:   "Payment is in progress",
 			wantStatus: http.StatusConflict,
 		},
 		{

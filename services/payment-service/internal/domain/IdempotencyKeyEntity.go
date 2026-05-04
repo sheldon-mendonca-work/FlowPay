@@ -7,6 +7,8 @@ type PaymentIdempotencyKey struct {
 	RequestHash    string
 	ResponseBody   string
 	Status         string
+	ErrorCode      string
+	ErrorMessage   string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
 }

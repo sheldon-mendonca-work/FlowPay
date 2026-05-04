@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -85,21 +84,21 @@ func TracingMiddleware(serviceName string, next http.Handler) http.Handler {
 		latency := time.Since(start)
 		statusLabel := fmt.Sprintf("%d", recorder.statusCode)
 
-		metrics.RequestCount.WithLabelValues(serviceName, r.URL.Path, r.Method, statusLabel).Inc()
+		metrics.RequestReceived.WithLabelValues(serviceName, r.URL.Path, r.Method, statusLabel).Inc()
 		metrics.RequestLatency.WithLabelValues(serviceName, r.URL.Path, r.Method).Observe(latency.Seconds())
 		if recorder.statusCode >= http.StatusBadRequest {
 			metrics.ErrorCount.WithLabelValues(serviceName, r.URL.Path, r.Method, statusLabel).Inc()
 		}
 
-		log.Printf(
-			"service=%s endpoint=%s trace_id=%s request_id=%s latency=%s status=%d",
-			serviceName,
-			r.URL.Path,
-			traceId,
-			requestId,
-			latency,
-			recorder.statusCode,
-		)
+		// log.Printf(
+		// 	"service=%s endpoint=%s trace_id=%s request_id=%s latency=%s status=%d",
+		// 	serviceName,
+		// 	r.URL.Path,
+		// 	traceId,
+		// 	requestId,
+		// 	latency,
+		// 	recorder.statusCode,
+		// )
 
 	})
 }

@@ -42,7 +42,6 @@ func main() {
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/payments", handler.HandlePayment)
 	mux.HandleFunc("/metrics", handleMetrics)
-
 	log.Println("Payment service running on :8001")
 	log.Fatal(http.ListenAndServe(":8001", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

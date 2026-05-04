@@ -14,12 +14,15 @@ import (
 
 func InitDB() *sql.DB {
 	dsn := utils.GetEnv("POSTGRES_DSN", "")
+	host := ""
+	port := ""
+	dbName := ""
 	if dsn == "" {
-		host := utils.GetEnv("POSTGRES_HOST", "localhost")
-		port := utils.GetEnv("POSTGRES_PORT", "5432")
+		host = utils.GetEnv("POSTGRES_HOST", "localhost")
+		port = utils.GetEnv("POSTGRES_PORT", "5432")
 		user := utils.GetEnv("POSTGRES_USER", "postgres")
 		password := utils.GetEnv("POSTGRES_PASSWORD", "postgres")
-		dbName := utils.GetEnv("POSTGRES_DB", "payment_db")
+		dbName = utils.GetEnv("POSTGRES_DB", "payment_db")
 		sslMode := utils.GetEnv("POSTGRES_SSLMODE", "disable")
 
 		dsn = fmt.Sprintf(
@@ -31,6 +34,12 @@ func InitDB() *sql.DB {
 			dbName,
 			sslMode,
 		)
+	}
+
+	if host != "" || port != "" || dbName != "" {
+		log.Printf("connecting to Postgres host=%s port=%s db=%s", host, port, dbName)
+	} else {
+		log.Println("connecting to Postgres using POSTGRES_DSN")
 	}
 
 	db, err := sql.Open("postgres", dsn)

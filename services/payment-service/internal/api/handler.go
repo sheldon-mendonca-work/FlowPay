@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	flowpayPaymentErrors "flowpay/payment-service/internal/errors"
 	"flowpay/payment-service/internal/service"
 	"flowpay/pkg/observability/logger"
+	"flowpay/pkg/observability/metrics"
 )
 
 type Handler struct {
@@ -33,8 +35,12 @@ func WriteJSONError(w http.ResponseWriter, message string, status int) {
 
 func paymentErrorResponse(err error) (string, int) {
 	switch {
+	case errors.Is(err, flowpayPaymentErrors.ErrInsufficientBalance):
+		return flowpayPaymentErrors.ErrInsufficientBalance.Error(), http.StatusBadRequest
 	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyMismatch):
 		return flowpayPaymentErrors.ErrIdempotencyMismatch.Error(), http.StatusConflict
+	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyInProgress):
+		return flowpayPaymentErrors.ErrIdempotencyInProgress.Error(), http.StatusConflict
 	case errors.Is(err, context.DeadlineExceeded):
 		return flowpayPaymentErrors.ErrPaymentRequestTimedOut.Error(), http.StatusGatewayTimeout
 	case errors.Is(err, context.Canceled):
@@ -44,15 +50,42 @@ func paymentErrorResponse(err error) (string, int) {
 	}
 }
 
+func paymentOutcome(status int, err error) string {
+	switch {
+	case err == nil && status == http.StatusAccepted:
+		return "success"
+	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyMismatch):
+		return "idempotency_mismatch"
+	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyInProgress):
+		return "idempotency_in_progress"
+	case errors.Is(err, flowpayPaymentErrors.ErrInsufficientBalance):
+		return "insufficient_balance"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	case status == http.StatusBadRequest:
+		return "validation_error"
+	case status == http.StatusMethodNotAllowed:
+		return "method_not_allowed"
+	default:
+		return "internal_error"
+	}
+}
+
+func paymentErrorType(err error) string {
+	return flowpayPaymentErrors.ToPaymentErrorType(err)
+}
+
 func validatePaymentRequest(req dto.PaymentRequestDTO, reqIdempotencyKey string) error {
 	if strings.TrimSpace(req.SenderID) == "" {
 		return flowpayPaymentErrors.ErrSenderIDRequired
 	}
 	if strings.TrimSpace(req.ReceiverID) == "" {
-		return flowpayPaymentErrors.ErrSenderIDRequired
+		return flowpayPaymentErrors.ErrReceiverIDRequired
 	}
 	if strings.TrimSpace(req.ReceiverID) == strings.TrimSpace(req.SenderID) {
-		return flowpayPaymentErrors.ErrSenderIDRequired
+		return flowpayPaymentErrors.ErrSenderReceiverIDMatching
 	}
 	if req.Amount <= 0 {
 		return flowpayPaymentErrors.ErrAmountMustBeGreaterThanZero
@@ -68,23 +101,83 @@ func validatePaymentRequest(req dto.PaymentRequestDTO, reqIdempotencyKey string)
 }
 
 func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	reqIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+	statusCode := http.StatusAccepted
+	var req dto.PaymentRequestDTO
+	var serviceErr error
+
+	defer func() {
+		outcome := paymentOutcome(statusCode, serviceErr)
+		metrics.PaymentRequestsTotal.WithLabelValues(constants.ServiceName, outcome).Inc()
+		metrics.PaymentRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_request_started", logger.Fields{
+		"http_method":     r.Method,
+		"http_path":       r.URL.Path,
+		"idempotency_key": reqIdempotencyKey,
+		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+	})
+
 	//  Check Method is Correct
 	if r.Method != http.MethodPost {
+		statusCode = http.StatusMethodNotAllowed
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "payment_request_rejected", logger.Fields{
+			"http_method":     r.Method,
+			"http_path":       r.URL.Path,
+			"http_status":     statusCode,
+			"outcome":         "method_not_allowed",
+			"idempotency_key": reqIdempotencyKey,
+			"error_type":      paymentErrorType(flowpayPaymentErrors.ErrMethodNotAllowed),
+		})
 		WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
 		return
 	}
 
 	// Decode the Request
-	var req dto.PaymentRequestDTO
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		statusCode = http.StatusBadRequest
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "payment_request_rejected", logger.Fields{
+			"http_method":     r.Method,
+			"http_path":       r.URL.Path,
+			"http_status":     statusCode,
+			"outcome":         "invalid_json",
+			"idempotency_key": reqIdempotencyKey,
+			"error_type":      paymentErrorType(flowpayPaymentErrors.ErrInvalidRequestBody),
+			"error":           err.Error(),
+		})
 		WriteJSONError(w, flowpayPaymentErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
 		return
 	}
-	// Read the idempotency key
-	reqIdempotencyKey := r.Header.Get("Idempotency-Key")
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_request_received", logger.Fields{
+		"http_method":     r.Method,
+		"http_path":       r.URL.Path,
+		"idempotency_key": reqIdempotencyKey,
+		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+		"sender_id":       req.SenderID,
+		"receiver_id":     req.ReceiverID,
+		"amount":          req.Amount,
+		"currency":        req.Currency,
+	})
 
 	// Validate the request content
 	if validationError := validatePaymentRequest(req, reqIdempotencyKey); validationError != nil {
+		statusCode = http.StatusBadRequest
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "payment_request_rejected", logger.Fields{
+			"http_method":     r.Method,
+			"http_path":       r.URL.Path,
+			"http_status":     statusCode,
+			"outcome":         "validation_error",
+			"idempotency_key": reqIdempotencyKey,
+			"error_type":      paymentErrorType(validationError),
+			"sender_id":       req.SenderID,
+			"receiver_id":     req.ReceiverID,
+			"amount":          req.Amount,
+			"currency":        req.Currency,
+			"error":           validationError.Error(),
+		})
 		WriteJSONError(w, validationError.Error(), http.StatusBadRequest)
 		return
 	}
@@ -96,21 +189,43 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 	resp, err := h.paymentService.CreatePayment(ctx, req, reqIdempotencyKey)
 	if err != nil {
 		message, status := paymentErrorResponse(err)
-		logger.LogWithRequest(
-			r.Context(),
-			constants.ServiceName,
-			"create payment failed status=%d sender_id=%s receiver_id=%s idempotency_key=%s error=%v",
-			status,
-			req.SenderID,
-			req.ReceiverID,
-			reqIdempotencyKey,
-			err,
-		)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "payment_request_failed", logger.Fields{
+			"http_method":      r.Method,
+			"http_path":        r.URL.Path,
+			"http_status":      status,
+			"http_status_text": http.StatusText(status),
+			"outcome":          paymentOutcome(status, err),
+			"error_type":       paymentErrorType(err),
+			"idempotency_key":  reqIdempotencyKey,
+			"sender_id":        req.SenderID,
+			"receiver_id":      req.ReceiverID,
+			"amount":           req.Amount,
+			"currency":         req.Currency,
+			"error":            err.Error(),
+			"duration_ms":      time.Since(start).Milliseconds(),
+		})
 		WriteJSONError(w, message, status)
 		return
 	}
 
-	logger.LogWithRequest(r.Context(), constants.ServiceName, "payment accepted for id=%s sender_id=%s receiver_id=%s idempotency_key=%s", resp.PaymentID, req.SenderID, req.ReceiverID, reqIdempotencyKey)
+	metrics.SuccessCount.WithLabelValues(constants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusAccepted)).Inc()
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_request_completed", logger.Fields{
+		"http_method":      r.Method,
+		"http_path":        r.URL.Path,
+		"http_status":      http.StatusAccepted,
+		"http_status_text": http.StatusText(http.StatusAccepted),
+		"outcome":          "success",
+		"error_type":       flowpayPaymentErrors.ErrorTypeNone,
+		"payment_id":       resp.PaymentID,
+		"idempotency_key":  reqIdempotencyKey,
+		"sender_id":        req.SenderID,
+		"receiver_id":      req.ReceiverID,
+		"amount":           req.Amount,
+		"currency":         req.Currency,
+		"duration_ms":      time.Since(start).Milliseconds(),
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

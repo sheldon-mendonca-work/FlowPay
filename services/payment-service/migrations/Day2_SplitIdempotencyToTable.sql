@@ -39,9 +39,11 @@ CREATE TABLE idempotency_keys (
     idempotency_key TEXT PRIMARY KEY,
     request_hash TEXT NOT NULL,
     response_body JSONB,
-    status TEXT NOT NULL CHECK (status IN ('IN_PROGRESS', 'COMPLETED')),
+    status TEXT NOT NULL CHECK (status IN ('IN_PROGRESS', 'COMPLETED', 'FAILED')),
+    error_code TEXT,
+    error_message TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_idempotency_status ON idempotency_keys(status);
 
@@ -69,3 +71,6 @@ ADD CONSTRAINT fk_sender FOREIGN KEY (sender_id) REFERENCES accounts(id);
 
 ALTER TABLE payments
 ADD CONSTRAINT fk_receiver FOREIGN KEY (receiver_id) REFERENCES accounts(id);
+
+CREATE UNIQUE INDEX unique_payment_type
+ON transactions (payment_id, type);
