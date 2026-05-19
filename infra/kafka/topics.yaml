@@ -1,5 +1,5 @@
 topics:
-  - name: payment.events
+  - name: payment.initiated
     partitions: 3
   - name: ledger.events
     partitions: 3

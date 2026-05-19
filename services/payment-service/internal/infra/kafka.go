@@ -9,7 +9,7 @@ import (
 
 func InitKafka() *kafka.Writer {
 	broker := utils.GetEnv("KAFKA_BROKER", "192.168.0.161:9094")
-	topic := utils.GetEnv("KAFKA_TOPIC", "payment.events")
+	topic := utils.GetEnv("KAFKA_TOPIC", "payment.initiated")
 
 	writer := kafka.NewWriter(kafka.WriterConfig{
 		Brokers: []string{broker},

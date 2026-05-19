@@ -98,38 +98,40 @@ services:
         condition: service_started
 
     volumes:
-      - ./topics.yaml:/config/topics.yaml
+      - ./kafka/topics.yaml:/config/topics.yaml
 
-    entrypoint: ["/bin/sh", "-c"]
-    command: |
-      echo 'Waiting for Kafka...'
-      until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
-        sleep 2
-      done
-      echo 'Creating topics from YAML...'
-      topic_name=''
-      partitions=''
-      while IFS= read -r line; do
-        case "$$line" in
-          *"- name:"*)
-            topic_name=$$(echo "$$line" | awk -F': ' '{print $$2}')
-            ;;
-          *"partitions:"*)
-            partitions=$$(echo "$$line" | awk -F': ' '{print $$2}')
-            if [ -n "$$topic_name" ] && [ -n "$$partitions" ]; then
-              echo "Creating topic: $$topic_name"
-              /opt/kafka/bin/kafka-topics.sh \
-                --bootstrap-server kafka:9092 \
-                --create \
-                --if-not-exists \
-                --topic "$$topic_name" \
-                --partitions "$$partitions" \
-                --replication-factor 1
-            fi
-            ;;
-        esac
-      done < /config/topics.yaml
-      echo 'Topics ready'
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        echo 'Waiting for Kafka...'
+        until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
+          sleep 2
+        done
+        echo 'Creating topics from YAML...'
+        topic_name=''
+        partitions=''
+        while IFS= read -r line; do
+          case "$$line" in
+            *"- name:"*)
+              topic_name=$$(echo "$$line" | awk -F': ' '{print $$2}')
+              ;;
+            *"partitions:"*)
+              partitions=$$(echo "$$line" | awk -F': ' '{print $$2}')
+              if [ -n "$$topic_name" ] && [ -n "$$partitions" ]; then
+                echo "Creating topic: $$topic_name"
+                /opt/kafka/bin/kafka-topics.sh \
+                  --bootstrap-server kafka:9092 \
+                  --create \
+                  --if-not-exists \
+                  --topic "$$topic_name" \
+                  --partitions "$$partitions" \
+                  --replication-factor 1
+              fi
+              ;;
+          esac
+        done < /config/topics.yaml
+        echo 'Topics ready'
   
   # ----------------------------
   # 📊 Prometheus

@@ -6,6 +6,8 @@ require flowpay/pkg v0.0.0
 
 replace flowpay/pkg => ../../pkg
 
+require github.com/lib/pq v1.12.3
+
 require github.com/segmentio/kafka-go v0.4.51
 
 require (

@@ -170,7 +170,7 @@ func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent) (domain.Out
 		AggregateID:   event.ID,
 		EventType:     "payment_initiated",
 		EventVersion:  1,
-		Status:        domain.OutboxEventPublished,
+		Status:        domain.OutboxEventPending,
 		Payload:       string(payloadBytes),
 		CreatedAt:     time.Now(),
 	}, nil
@@ -364,13 +364,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	}
 
 	logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "outbox_event_inserted", logger.Fields{
-		"idempotency_key": idempotencyKey,
-		"outbox_event_id": outboxEvent.ID,
-		"sender_id":       req.SenderID,
-		"receiver_id":     req.ReceiverID,
-		"amount":          req.Amount,
-		"currency":        req.Currency,
-		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+		"idempotency_key":      idempotencyKey,
+		"outbox_event_id":      outboxEvent.ID,
+		"outbox_event_version": outboxEvent.EventVersion,
+		"sender_id":            req.SenderID,
+		"receiver_id":          req.ReceiverID,
+		"amount":               req.Amount,
+		"currency":             req.Currency,
+		"error_type":           flowpayPaymentErrors.ErrorTypeNone,
 	})
 
 	err = s.outboxEventRepository.InsertOutboxEvent(tx, ctx, outboxEvent)

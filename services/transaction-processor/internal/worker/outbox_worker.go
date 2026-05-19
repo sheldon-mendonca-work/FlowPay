@@ -40,6 +40,7 @@ func (w *OutboxWorker) processBatch(ctx context.Context) error {
 			tx.Rollback()
 		}
 	}()
+
 	events, err := w.repo.FetchUnpublished(tx, ctx, w.batchSize)
 	if err != nil {
 		log.Println("Failed to fetch outbox events:", err)

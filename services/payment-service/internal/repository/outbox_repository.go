@@ -22,11 +22,12 @@ func (r *OutboxEventRepository) InsertOutboxEvent(tx *sql.Tx, ctx context.Contex
 			aggregate_type,
 			aggregate_id,
 			event_type,
+			event_version,
 			payload,
 			status,
 			created_at,
 			published_at
-		) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW());
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW());
 	`
 
 	res, err := tx.ExecContext(ctx,
@@ -35,6 +36,7 @@ func (r *OutboxEventRepository) InsertOutboxEvent(tx *sql.Tx, ctx context.Contex
 		payload.AggregateType,
 		payload.AggregateID,
 		payload.EventType,
+		payload.EventVersion,
 		payload.Payload,
 		payload.Status,
 	)

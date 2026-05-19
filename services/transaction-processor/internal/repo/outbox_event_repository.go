@@ -25,7 +25,7 @@ func (r *OutboxEventRepository) FetchUnpublished(tx *sql.Tx, ctx context.Context
 			payload,
 			status
 		FROM outbox_events
-		WHERE status = 'UNPUBLISHED'
+		WHERE status = 'PENDING'
 		ORDER BY created_at
 		LIMIT $1
 		FOR UPDATE SKIP LOCKED;
