@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"flowpay/payment-service/internal/api"
-	"flowpay/payment-service/internal/constants"
+	paymentServiceConstants "flowpay/payment-service/internal/constants"
 	"flowpay/payment-service/internal/infra"
 	"flowpay/payment-service/internal/repository"
 	"flowpay/payment-service/internal/service"
@@ -31,8 +31,9 @@ func main() {
 	transactionRepository := repository.NewTransactionRepository(db)
 	paymentIdempotencyRepository := repository.NewPaymentIdempotencyRepository(db)
 	accountRepository := repository.NewAccountRepository(db)
+	outboxEventRepository := repository.NewOutboxEventRepository(db)
 
-	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository)
+	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository)
 	handler := api.NewHandler(paymentService)
 
 	// defer kafkaWriter.Close()
@@ -43,5 +44,5 @@ func main() {
 	mux.HandleFunc("/payments", handler.HandlePayment)
 	mux.HandleFunc("/metrics", handleMetrics)
 	log.Println("Payment service running on :8001")
-	log.Fatal(http.ListenAndServe(":8001", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":8001", tracing.TracingMiddleware(paymentServiceConstants.ServiceName, mux)))
 }

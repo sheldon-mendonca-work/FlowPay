@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"flowpay/payment-service/internal/constants"
+	paymentServiceConstants "flowpay/payment-service/internal/constants"
 	"flowpay/payment-service/internal/dto"
 	flowpayPaymentErrors "flowpay/payment-service/internal/errors"
 	"flowpay/payment-service/internal/service"
@@ -109,11 +109,11 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 
 	defer func() {
 		outcome := paymentOutcome(statusCode, serviceErr)
-		metrics.PaymentRequestsTotal.WithLabelValues(constants.ServiceName, outcome).Inc()
-		metrics.PaymentRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+		metrics.PaymentRequestsTotal.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Inc()
+		metrics.PaymentRequestDuration.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Observe(time.Since(start).Seconds())
 	}()
 
-	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_request_started", logger.Fields{
+	logger.LogEvent(r.Context(), "INFO", paymentServiceConstants.ServiceName, "payment_request_started", logger.Fields{
 		"http_method":     r.Method,
 		"http_path":       r.URL.Path,
 		"idempotency_key": reqIdempotencyKey,
@@ -123,7 +123,7 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 	//  Check Method is Correct
 	if r.Method != http.MethodPost {
 		statusCode = http.StatusMethodNotAllowed
-		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "payment_request_rejected", logger.Fields{
+		logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_request_rejected", logger.Fields{
 			"http_method":     r.Method,
 			"http_path":       r.URL.Path,
 			"http_status":     statusCode,
@@ -138,7 +138,7 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 	// Decode the Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		statusCode = http.StatusBadRequest
-		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "payment_request_rejected", logger.Fields{
+		logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_request_rejected", logger.Fields{
 			"http_method":     r.Method,
 			"http_path":       r.URL.Path,
 			"http_status":     statusCode,
@@ -151,7 +151,7 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_request_received", logger.Fields{
+	logger.LogEvent(r.Context(), "INFO", paymentServiceConstants.ServiceName, "payment_request_received", logger.Fields{
 		"http_method":     r.Method,
 		"http_path":       r.URL.Path,
 		"idempotency_key": reqIdempotencyKey,
@@ -165,7 +165,7 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 	// Validate the request content
 	if validationError := validatePaymentRequest(req, reqIdempotencyKey); validationError != nil {
 		statusCode = http.StatusBadRequest
-		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "payment_request_rejected", logger.Fields{
+		logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_request_rejected", logger.Fields{
 			"http_method":     r.Method,
 			"http_path":       r.URL.Path,
 			"http_status":     statusCode,
@@ -191,7 +191,7 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 		message, status := paymentErrorResponse(err)
 		statusCode = status
 		serviceErr = err
-		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "payment_request_failed", logger.Fields{
+		logger.LogEvent(r.Context(), "ERROR", paymentServiceConstants.ServiceName, "payment_request_failed", logger.Fields{
 			"http_method":      r.Method,
 			"http_path":        r.URL.Path,
 			"http_status":      status,
@@ -210,8 +210,8 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metrics.SuccessCount.WithLabelValues(constants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusAccepted)).Inc()
-	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_request_completed", logger.Fields{
+	metrics.SuccessCount.WithLabelValues(paymentServiceConstants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusAccepted)).Inc()
+	logger.LogEvent(r.Context(), "INFO", paymentServiceConstants.ServiceName, "payment_request_completed", logger.Fields{
 		"http_method":      r.Method,
 		"http_path":        r.URL.Path,
 		"http_status":      http.StatusAccepted,

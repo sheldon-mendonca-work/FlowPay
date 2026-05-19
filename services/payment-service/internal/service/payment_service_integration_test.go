@@ -48,6 +48,7 @@ func createPaymentService(db *sql.DB) *PaymentService {
 		repository.NewTransactionRepository(db),
 		repository.NewPaymentIdempotencyRepository(db),
 		repository.NewAccountRepository(db),
+		repository.NewOutboxEventRepository(db),
 	)
 }
 

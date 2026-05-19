@@ -1,3 +1,3 @@
-package constants
+package paymentServiceConstants
 
 const ServiceName = "payment-service"
