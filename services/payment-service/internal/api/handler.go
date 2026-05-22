@@ -37,6 +37,8 @@ func paymentErrorResponse(err error) (string, int) {
 	switch {
 	case errors.Is(err, flowpayPaymentErrors.ErrInsufficientBalance):
 		return flowpayPaymentErrors.ErrInsufficientBalance.Error(), http.StatusBadRequest
+	case errors.Is(err, flowpayPaymentErrors.ErrPaymentNotFound):
+		return flowpayPaymentErrors.ErrPaymentNotFound.Error(), http.StatusNotFound
 	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyMismatch):
 		return flowpayPaymentErrors.ErrIdempotencyMismatch.Error(), http.StatusConflict
 	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyInProgress):
@@ -54,6 +56,10 @@ func paymentOutcome(status int, err error) string {
 	switch {
 	case err == nil && status == http.StatusAccepted:
 		return "success"
+	case err == nil && status == http.StatusOK:
+		return "success"
+	case errors.Is(err, flowpayPaymentErrors.ErrPaymentNotFound):
+		return "payment_not_found"
 	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyMismatch):
 		return "idempotency_mismatch"
 	case errors.Is(err, flowpayPaymentErrors.ErrIdempotencyInProgress):
@@ -100,7 +106,7 @@ func validatePaymentRequest(req dto.PaymentRequestDTO, reqIdempotencyKey string)
 	return nil
 }
 
-func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	reqIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	statusCode := http.StatusAccepted
@@ -119,21 +125,6 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 		"idempotency_key": reqIdempotencyKey,
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
 	})
-
-	//  Check Method is Correct
-	if r.Method != http.MethodPost {
-		statusCode = http.StatusMethodNotAllowed
-		logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_request_rejected", logger.Fields{
-			"http_method":     r.Method,
-			"http_path":       r.URL.Path,
-			"http_status":     statusCode,
-			"outcome":         "method_not_allowed",
-			"idempotency_key": reqIdempotencyKey,
-			"error_type":      paymentErrorType(flowpayPaymentErrors.ErrMethodNotAllowed),
-		})
-		WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
-		return
-	}
 
 	// Decode the Request
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -229,5 +220,128 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.HandlePaymentPostMethod(w, r)
+		return
+	}
+
+	statusCode := http.StatusAccepted
+	reqIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+
+	statusCode = http.StatusMethodNotAllowed
+	logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_request_rejected", logger.Fields{
+		"http_method":     r.Method,
+		"http_path":       r.URL.Path,
+		"http_status":     statusCode,
+		"outcome":         "method_not_allowed",
+		"idempotency_key": reqIdempotencyKey,
+		"error_type":      paymentErrorType(flowpayPaymentErrors.ErrMethodNotAllowed),
+	})
+	WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+	return
+}
+
+func (h *Handler) HandlePaymentByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodGet {
+		h.HandlePaymentGetByIDMethod(w, r)
+		return
+	}
+
+	statusCode := http.StatusAccepted
+	paymentID := r.PathValue("paymentID")
+
+	statusCode = http.StatusMethodNotAllowed
+	logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_request_rejected", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": statusCode,
+		"outcome":     "method_not_allowed",
+		"payment_id":  paymentID,
+		"error_type":  paymentErrorType(flowpayPaymentErrors.ErrMethodNotAllowed),
+	})
+	WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+}
+
+func (h *Handler) HandlePaymentGetByIDMethod(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	statusCode := http.StatusOK
+	paymentID := strings.TrimSpace(r.PathValue("paymentID"))
+	var serviceErr error
+
+	defer func() {
+		outcome := paymentOutcome(statusCode, serviceErr)
+		metrics.PaymentRequestsTotal.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Inc()
+		metrics.PaymentRequestDuration.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", paymentServiceConstants.ServiceName, "payment_lookup_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"payment_id":  paymentID,
+		"error_type":  flowpayPaymentErrors.ErrorTypeNone,
+	})
+
+	if paymentID == "" {
+		statusCode = http.StatusBadRequest
+		serviceErr = flowpayPaymentErrors.ErrInvalidRequestBody
+		logger.LogEvent(r.Context(), "WARN", paymentServiceConstants.ServiceName, "payment_lookup_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "validation_error",
+			"payment_id":  paymentID,
+			"error_type":  paymentErrorType(serviceErr),
+			"error":       "payment_id path parameter is required",
+		})
+		WriteJSONError(w, "payment_id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.paymentService.GetPaymentByID(ctx, paymentID)
+	if err != nil {
+		message, status := paymentErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", paymentServiceConstants.ServiceName, "payment_lookup_failed", logger.Fields{
+			"http_method":      r.Method,
+			"http_path":        r.URL.Path,
+			"http_status":      status,
+			"http_status_text": http.StatusText(status),
+			"outcome":          paymentOutcome(status, err),
+			"error_type":       paymentErrorType(err),
+			"payment_id":       paymentID,
+			"error":            err.Error(),
+			"duration_ms":      time.Since(start).Milliseconds(),
+		})
+		WriteJSONError(w, message, status)
+		return
+	}
+
+	metrics.SuccessCount.WithLabelValues(paymentServiceConstants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusOK)).Inc()
+	logger.LogEvent(r.Context(), "INFO", paymentServiceConstants.ServiceName, "payment_lookup_completed", logger.Fields{
+		"http_method":      r.Method,
+		"http_path":        r.URL.Path,
+		"http_status":      http.StatusOK,
+		"http_status_text": http.StatusText(http.StatusOK),
+		"outcome":          "success",
+		"error_type":       flowpayPaymentErrors.ErrorTypeNone,
+		"payment_id":       resp.PaymentID,
+		"idempotency_key":  resp.IdempotencyKey,
+		"sender_id":        resp.SenderID,
+		"receiver_id":      resp.ReceiverID,
+		"amount":           resp.Amount,
+		"currency":         resp.Currency,
+		"duration_ms":      time.Since(start).Milliseconds(),
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
 }

@@ -135,9 +135,10 @@ func (r *PaymentIdempotencyRepository) insertClaim(
 			status,
 			owner_token,
 			locked_until,
+			payment_id,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, NOW(), NOW());
+		) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW());
 	`
 	res, err := tx.ExecContext(
 		ctx,
@@ -147,6 +148,7 @@ func (r *PaymentIdempotencyRepository) insertClaim(
 		idempotency.Status,
 		idempotency.OwnerToken,
 		idempotency.LockedUntil,
+		idempotency.PaymentID,
 	)
 	if err != nil {
 		return err
@@ -211,6 +213,45 @@ func (r *PaymentIdempotencyRepository) GetByKey(
 
 	var p domain.PaymentIdempotencyKey
 	err := r.db.QueryRowContext(ctx, query, key).Scan(
+		&p.IdempotencyKey,
+		&p.RequestHash,
+		&p.ResponseBody,
+		&p.Status,
+		&p.ErrorCode,
+		&p.ErrorMessage,
+		&p.PaymentID,
+		&p.OwnerToken,
+		&p.LockedUntil,
+		&p.CreatedAt,
+		&p.UpdatedAt,
+	)
+
+	return p, err
+}
+
+func (r *PaymentIdempotencyRepository) GetByPaymentID(
+	ctx context.Context,
+	paymentID string,
+) (domain.PaymentIdempotencyKey, error) {
+	query := `
+		SELECT
+			idempotency_key,
+			request_hash,
+			COALESCE(response_body::text, ''),
+			status,
+			COALESCE(error_code, ''),
+			COALESCE(error_message, ''),
+			COALESCE(payment_id::text, ''),
+			COALESCE(owner_token, ''),
+			locked_until,
+			created_at,
+			updated_at
+		FROM idempotency_keys
+		WHERE payment_id = $1::uuid;
+	`
+
+	var p domain.PaymentIdempotencyKey
+	err := r.db.QueryRowContext(ctx, query, paymentID).Scan(
 		&p.IdempotencyKey,
 		&p.RequestHash,
 		&p.ResponseBody,

@@ -13,7 +13,6 @@ var (
 
 	ErrMethodNotAllowed       = errors.New("method not allowed")
 	ErrInvalidRequestBody     = errors.New("invalid request body")
-	ErrPaymentNotFound        = errors.New("payment not found")
 	ErrPaymentRequestTimedOut = errors.New("payment request timed out")
 	ErrPaymentRequestCanceled = errors.New("payment request canceled")
 	ErrCreatePaymentFailed    = errors.New("failed to create payment")

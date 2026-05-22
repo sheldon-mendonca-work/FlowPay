@@ -42,6 +42,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/payments", handler.HandlePayment)
+	mux.HandleFunc("/payments/{paymentID}", handler.HandlePaymentByID)
 	mux.HandleFunc("/metrics", handleMetrics)
 	log.Println("Payment service running on :8001")
 	log.Fatal(http.ListenAndServe(":8001", tracing.TracingMiddleware(paymentServiceConstants.ServiceName, mux)))

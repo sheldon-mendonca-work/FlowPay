@@ -2,13 +2,14 @@ package domain
 
 import "time"
 
-type PaymentInitiatedEvent struct {
+type Payment struct {
 	ID             string
+	IdempotencyKey string
 	SenderID       string
 	ReceiverID     string
-	IdempotencyKey string
-	OwnerToken     string
 	Amount         int64
 	Currency       string
+	Status         string
 	CreatedAt      time.Time
+	UpdatedAt      time.Time
 }

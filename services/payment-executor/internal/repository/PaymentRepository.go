@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"flowpay/payment-service/internal/domain"
+	"flowpay/payment-executor/internal/domain"
 	"fmt"
 )
 
@@ -53,65 +53,18 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 	return nil
 }
 
-func (r *PaymentRepository) GetPaymentByIdempotencyKey(ctx context.Context, key string) (domain.Payment, error) {
+func (r *PaymentRepository) GetByPaymentIdAndIdempotencyKey(ctx context.Context, paymentID string, idempotencyKey string) (domain.Payment, error) {
 	query := `
-		SELECT
-			id,
-			idempotency_key,
-			sender_id,
-			receiver_id,
-			amount,
-			currency,
-			status,
-			created_at,
-			updated_at
+		SELECT id, idempotency_key, status
 		FROM payments
-		WHERE idempotency_key = $1;
+		WHERE id=$1 AND idempotency_key = $2;
 	`
-
 	var payment domain.Payment
-	err := r.db.QueryRowContext(ctx, query, key).Scan(
+
+	err := r.db.QueryRowContext(ctx, query, paymentID, idempotencyKey).Scan(
 		&payment.ID,
 		&payment.IdempotencyKey,
-		&payment.SenderID,
-		&payment.ReceiverID,
-		&payment.Amount,
-		&payment.Currency,
 		&payment.Status,
-		&payment.CreatedAt,
-		&payment.UpdatedAt,
-	)
-
-	return payment, err
-}
-
-func (r *PaymentRepository) GetPaymentByID(ctx context.Context, paymentID string) (domain.Payment, error) {
-	query := `
-		SELECT
-			id,
-			idempotency_key,
-			sender_id,
-			receiver_id,
-			amount,
-			currency,
-			status,
-			created_at,
-			updated_at
-		FROM payments
-		WHERE id = $1;
-	`
-
-	var payment domain.Payment
-	err := r.db.QueryRowContext(ctx, query, paymentID).Scan(
-		&payment.ID,
-		&payment.IdempotencyKey,
-		&payment.SenderID,
-		&payment.ReceiverID,
-		&payment.Amount,
-		&payment.Currency,
-		&payment.Status,
-		&payment.CreatedAt,
-		&payment.UpdatedAt,
 	)
 
 	return payment, err

@@ -21,11 +21,11 @@ import (
 type PaymentRepository interface {
 	CreatePayment(tx *sql.Tx, ctx context.Context, payment domain.Payment) error
 	GetPaymentByIdempotencyKey(ctx context.Context, key string) (domain.Payment, error)
+	GetPaymentByID(ctx context.Context, paymentID string) (domain.Payment, error)
 }
 
 type AccountRepository interface {
 	GetAccountsBySenderReceiverId(ctx context.Context, tx *sql.Tx, senderId string, receiverId string) (map[string]domain.Account, error)
-	UpdateBalanceForSenderAndReceiver(tx *sql.Tx, ctx context.Context, senderID string, receiverID string, amount int64) error
 }
 
 type TransactionRepository interface {
@@ -36,10 +36,13 @@ type PaymentIdempotencyRepository interface {
 	ClaimOrGet(ctx context.Context, idempotency domain.PaymentIdempotencyKey) (domain.PaymentIdempotencyKey, bool, error)
 	MarkCompleted(tx *sql.Tx, ctx context.Context, idempotencyKey string, responseBody string, paymentID string, ownerToken string) error
 	MarkFailed(tx *sql.Tx, ctx context.Context, idempotencyKey string, errorCode string, errorMessage string, ownerToken string) error
+	GetByKey(ctx context.Context, key string) (domain.PaymentIdempotencyKey, error)
+	GetByPaymentID(ctx context.Context, paymentID string) (domain.PaymentIdempotencyKey, error)
 }
 
 type OutboxEventRepository interface {
 	InsertOutboxEvent(tx *sql.Tx, ctx context.Context, payload domain.OutboxEventType) error
+	GetLatestByAggregateID(ctx context.Context, aggregateID string) (domain.OutboxEventType, error)
 }
 
 type PaymentService struct {
@@ -150,7 +153,7 @@ func isDeterministicBusinessFailure(err error) bool {
 }
 
 func leaseExpiryFromNow() time.Time {
-	return time.Now().UTC().Add(30 * time.Second)
+	return time.Now().UTC().Add(5 * time.Minute)
 }
 
 func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent) (domain.OutboxEventType, error) {
@@ -176,6 +179,57 @@ func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent) (domain.Out
 	}, nil
 }
 
+func toPaymentResponse(payment domain.Payment) dto.PaymentResponseDTO {
+	return dto.PaymentResponseDTO{
+		PaymentID: payment.ID,
+		Status:    types.PaymentStatusEnum(payment.Status),
+	}
+}
+
+func newPaymentID() (string, error) {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "", fmt.Errorf("generate payment id: %w", err)
+	}
+
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
+}
+
+func generateSenderTransaction(payment domain.Payment) (domain.Transaction, error) {
+	transactionID, err := newPaymentID()
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	return domain.Transaction{
+		ID:        transactionID,
+		PaymentID: payment.ID,
+		AccountID: payment.SenderID,
+		Type:      "DEBIT",
+		Amount:    payment.Amount,
+		Currency:  payment.Currency,
+		Status:    "SUCCESS",
+	}, nil
+}
+
+func generateReceiverTransaction(payment domain.Payment) (domain.Transaction, error) {
+	transactionID, err := newPaymentID()
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+	return domain.Transaction{
+		ID:        transactionID,
+		PaymentID: payment.ID,
+		AccountID: payment.ReceiverID,
+		Type:      "CREDIT",
+		Amount:    payment.Amount,
+		Currency:  payment.Currency,
+		Status:    "SUCCESS",
+	}, nil
+}
+
 func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string) (dto.PaymentResponseDTO, error) {
 	// Compute Request Hash
 	reqAsBytes, err := json.Marshal(req)
@@ -192,9 +246,15 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		return dto.PaymentResponseDTO{}, err
 	}
 
+	paymentID, err := newPaymentID()
+	if err != nil {
+		return dto.PaymentResponseDTO{}, err
+	}
+
 	idempotencyPayload := domain.PaymentIdempotencyKey{
 		IdempotencyKey: idempotencyKey,
 		RequestHash:    payloadHash,
+		PaymentID:      paymentID,
 		Status:         "IN_PROGRESS",
 		OwnerToken:     ownerToken,
 		LockedUntil:    leaseExpiryFromNow(),
@@ -241,11 +301,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		})
 		logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "served cached idempotency result for idempotency_key=%s status=%s", idempotencyKey, existingIdempotency.Status)
 		return cachedResponse, nil
-	}
-
-	paymentID, err := newPaymentID()
-	if err != nil {
-		return dto.PaymentResponseDTO{}, err
 	}
 
 	// Begin Transaction
@@ -333,8 +388,6 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	if err != nil {
 		return rollbackTechnicalFailure("account_lock_and_load", err)
 	}
-	// senderUser := accounts[req.SenderID]
-	// receiverUser := accounts[req.ReceiverID]
 	amount := req.Amount
 
 	err = validateSenderAndReceiverAccounts(accounts, req, amount)
@@ -347,12 +400,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 	// Create Outbox event
 	paymentInitiatedEvent := domain.PaymentInitiatedEvent{
-		ID:         paymentID,
-		SenderID:   req.SenderID,
-		ReceiverID: req.ReceiverID,
-		Amount:     amount,
-		Currency:   req.Currency,
-		CreatedAt:  time.Now(),
+		ID:             paymentID,
+		SenderID:       req.SenderID,
+		ReceiverID:     req.ReceiverID,
+		IdempotencyKey: idempotencyKey,
+		OwnerToken:     ownerToken,
+		Amount:         amount,
+		Currency:       req.Currency,
+		CreatedAt:      time.Now(),
 	}
 
 	outboxEvent, err := MapPaymentInitiatedToOutbox(paymentInitiatedEvent)
@@ -382,66 +437,10 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		return rollbackTechnicalFailure("outbox_event_insertion", err)
 	}
 
-	// // Update the balance for sender and receiver
-	// err = s.accountRepository.UpdateBalanceForSenderAndReceiver(tx, ctx, senderUser.ID, receiverUser.ID, amount)
-	// if err != nil {
-	// 	if isDeterministicBusinessFailure(err) {
-	// 		return markFailedAndCommit("account_balance_update", err)
-	// 	}
-	// 	return rollbackTechnicalFailure("account_balance_update", err)
-	// }
-	// logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "updated balances sender_id=%s receiver_id=%s amount=%d", senderUser.ID, receiverUser.ID, amount)
-
-	// payment := domain.Payment{
-	// 	ID:             paymentID,
-	// 	IdempotencyKey: idempotencyKey,
-	// 	SenderID:       senderUser.ID,
-	// 	ReceiverID:     receiverUser.ID,
-	// 	Amount:         amount,
-	// 	Currency:       req.Currency,
-	// 	Status:         string(types.SUCCESS),
-	// }
-
-	// // Create Payment Entries in payment table
-	// err = s.paymentRepository.CreatePayment(tx, ctx, payment)
-	// if err != nil {
-	// 	return rollbackTechnicalFailure("payment_insert", err)
-	// }
-	// logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "inserted payment row payment_id=%s sender_id=%s receiver_id=%s amount=%d", payment.ID, payment.SenderID, payment.ReceiverID, payment.Amount)
-
-	// // Create Transacion entries for both sender and reciever
-	// senderTransaction, err := generateSenderTransaction(payment)
-	// if err != nil {
-	// 	return rollbackTechnicalFailure("sender_transaction_generate", err)
-	// }
-	// receiverTransaction, err := generateReceiverTransaction(payment)
-	// if err != nil {
-	// 	return rollbackTechnicalFailure("receiver_transaction_generate", err)
-	// }
-
-	// err = s.transactionRepository.CreateTransactionsForSenderAndReceiver(tx, ctx, senderTransaction, receiverTransaction)
-	// if err != nil {
-	// 	return rollbackTechnicalFailure("transaction_insert", err)
-	// }
-	// logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "added transaction entries payment_id=%s sender_tx_id=%s receiver_tx_id=%s", payment.ID, senderTransaction.ID, receiverTransaction.ID)
-
-	// // Create Response
-	// response := toPaymentResponse(payment)
-
 	response := dto.PaymentResponseDTO{
-		PaymentID: outboxEvent.ID,
-		Status:    "Payment Accepted",
+		PaymentID: paymentID,
+		Status:    types.PROCESSING,
 	}
-	responseBody, err := json.Marshal(response)
-	if err != nil {
-		return rollbackTechnicalFailure("idempotency_response_encode", fmt.Errorf("encode idempotency response: %w", err))
-	}
-
-	// Mark idemptency as completed
-	if err := s.paymentIdempotencyRepository.MarkCompleted(tx, ctx, idempotencyKey, string(responseBody), outboxEvent.ID, ownerToken); err != nil {
-		return rollbackTechnicalFailure("idempotency_mark_completed", err)
-	}
-	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "marked idempotency completed idempotency_key=%s outboxEvent_id=%s", idempotencyKey, outboxEvent.ID)
 
 	// Commit all transactions
 	if err := tx.Commit(); err != nil {
@@ -450,76 +449,87 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		return dto.PaymentResponseDTO{}, err
 	}
 	txClosed = true
-	// logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "payment_tx_committed", logger.Fields{
-	// 	"idempotency_key": idempotencyKey,
-	// 	"payment_id":      payment.ID,
-	// 	"sender_id":       req.SenderID,
-	// 	"receiver_id":     req.ReceiverID,
-	// 	"amount":          req.Amount,
-	// 	"currency":        req.Currency,
-	// 	"error_type":      flowpayPaymentErrors.ErrorTypeNone,
-	// })
+
 	logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "payment_tx_committed", logger.Fields{
 		"idempotency_key": idempotencyKey,
-		"payment_id":      outboxEvent.ID,
+		"payment_id":      paymentID,
+		"outbox_event_id": outboxEvent.ID,
 		"sender_id":       req.SenderID,
 		"receiver_id":     req.ReceiverID,
 		"amount":          req.Amount,
 		"currency":        req.Currency,
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
 	})
-	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "committed payment transaction outboxEvent_id=%s idempotency_key=%s", outboxEvent.ID, idempotencyKey)
+	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "committed payment transaction payment_id=%s outboxEvent_id=%s idempotency_key=%s", paymentID, outboxEvent.ID, idempotencyKey)
 
 	return response, nil
 }
 
-func toPaymentResponse(payment domain.Payment) dto.PaymentResponseDTO {
-	return dto.PaymentResponseDTO{
-		PaymentID: payment.ID,
-		Status:    types.PaymentStatusEnum(payment.Status),
+func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (dto.GetPaymentResponseDTO, error) {
+	payment, err := s.paymentRepository.GetPaymentByID(ctx, paymentID)
+	if err == nil {
+		return dto.GetPaymentResponseDTO{
+			PaymentID:      payment.ID,
+			IdempotencyKey: payment.IdempotencyKey,
+			SenderID:       payment.SenderID,
+			ReceiverID:     payment.ReceiverID,
+			Amount:         payment.Amount,
+			Currency:       payment.Currency,
+			Status:         payment.Status,
+			CreatedAt:      payment.CreatedAt,
+			UpdatedAt:      payment.UpdatedAt,
+		}, nil
 	}
-}
-
-func newPaymentID() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("generate payment id: %w", err)
+	if !errors.Is(err, sql.ErrNoRows) {
+		return dto.GetPaymentResponseDTO{}, err
 	}
 
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
-}
-
-func generateSenderTransaction(payment domain.Payment) (domain.Transaction, error) {
-	transactionID, err := newPaymentID()
+	idempotency, err := s.paymentIdempotencyRepository.GetByPaymentID(ctx, paymentID)
 	if err != nil {
-		return domain.Transaction{}, err
+		if errors.Is(err, sql.ErrNoRows) {
+			return dto.GetPaymentResponseDTO{}, flowpayPaymentErrors.ErrPaymentNotFound
+		}
+		return dto.GetPaymentResponseDTO{}, err
 	}
-	return domain.Transaction{
-		ID:        transactionID,
-		PaymentID: payment.ID,
-		AccountID: payment.SenderID,
-		Type:      "DEBIT",
-		Amount:    payment.Amount,
-		Currency:  payment.Currency,
-		Status:    "SUCCESS",
-	}, nil
+
+	response := dto.GetPaymentResponseDTO{
+		PaymentID:      idempotency.PaymentID,
+		IdempotencyKey: idempotency.IdempotencyKey,
+		Status:         paymentStatusFromIdempotency(idempotency.Status),
+		CreatedAt:      idempotency.CreatedAt,
+		UpdatedAt:      idempotency.UpdatedAt,
+	}
+
+	outboxEvent, err := s.outboxEventRepository.GetLatestByAggregateID(ctx, paymentID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return response, nil
+		}
+		return dto.GetPaymentResponseDTO{}, err
+	}
+
+	var paymentInitiatedEvent domain.PaymentInitiatedEvent
+	if err := json.Unmarshal([]byte(outboxEvent.Payload), &paymentInitiatedEvent); err != nil {
+		return dto.GetPaymentResponseDTO{}, fmt.Errorf("decode outbox payment payload: %w", err)
+	}
+
+	response.SenderID = paymentInitiatedEvent.SenderID
+	response.ReceiverID = paymentInitiatedEvent.ReceiverID
+	response.Amount = paymentInitiatedEvent.Amount
+	response.Currency = paymentInitiatedEvent.Currency
+
+	return response, nil
 }
 
-func generateReceiverTransaction(payment domain.Payment) (domain.Transaction, error) {
-	transactionID, err := newPaymentID()
-	if err != nil {
-		return domain.Transaction{}, err
+func paymentStatusFromIdempotency(status string) string {
+	switch status {
+	case "IN_PROGRESS":
+		return string(types.PROCESSING)
+	case "FAILED":
+		return string(types.FAILED)
+	case "COMPLETED":
+		return string(types.SUCCESS)
+	default:
+		return status
 	}
-	return domain.Transaction{
-		ID:        transactionID,
-		PaymentID: payment.ID,
-		AccountID: payment.ReceiverID,
-		Type:      "CREDIT",
-		Amount:    payment.Amount,
-		Currency:  payment.Currency,
-		Status:    "SUCCESS",
-	}, nil
 }
