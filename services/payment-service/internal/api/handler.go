@@ -110,6 +110,9 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 	start := time.Now()
 	reqIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	statusCode := http.StatusAccepted
+	traceID := strings.TrimSpace(r.Header.Get("Trace-Id"))
+	requestID := strings.TrimSpace(r.Header.Get("Request-Id"))
+
 	var req dto.PaymentRequestDTO
 	var serviceErr error
 
@@ -177,7 +180,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Call the service method for handling this
-	resp, err := h.paymentService.CreatePayment(ctx, req, reqIdempotencyKey)
+	resp, err := h.paymentService.CreatePayment(ctx, req, reqIdempotencyKey, traceID, requestID)
 	if err != nil {
 		message, status := paymentErrorResponse(err)
 		statusCode = status
@@ -242,7 +245,6 @@ func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
 		"error_type":      paymentErrorType(flowpayPaymentErrors.ErrMethodNotAllowed),
 	})
 	WriteJSONError(w, flowpayPaymentErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
-	return
 }
 
 func (h *Handler) HandlePaymentByID(w http.ResponseWriter, r *http.Request) {

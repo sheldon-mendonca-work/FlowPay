@@ -8,6 +8,9 @@ type PaymentInitiatedEvent struct {
 	ReceiverID     string
 	IdempotencyKey string
 	OwnerToken     string
+	RetryCount     int8
+	TraceID        string
+	RequestID      string
 	Amount         int64
 	Currency       string
 	CreatedAt      time.Time

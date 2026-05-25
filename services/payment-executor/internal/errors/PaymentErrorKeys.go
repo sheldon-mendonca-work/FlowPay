@@ -8,6 +8,7 @@ import (
 
 const (
 	ErrorTypeNone                  = "NONE"
+	ErrorTypeKafkaMessageDecoding  = "KAFKA_MESSAGE_DECODE_FAILED"
 	ErrorTypeValidationError       = "VALIDATION_ERROR"
 	ErrorTypeInsufficientBalance   = "INSUFFICIENT_BALANCE"
 	ErrorTypeIdempotencyMismatch   = "IDEMPOTENCY_MISMATCH"

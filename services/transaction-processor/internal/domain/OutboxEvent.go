@@ -12,6 +12,10 @@ type OutboxEventType struct {
 	EventType     string
 	EventVersion  int8
 	Status        string
+	TraceID       string
+	RequestID     string
+	RetryCount    int8
+	LockedUntil   time.Time
 	CreatedAt     time.Time
 	PublishedAt   time.Time
 }

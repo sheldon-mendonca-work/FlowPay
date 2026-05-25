@@ -11,11 +11,16 @@ CREATE TABLE outbox_events (
 
     payload JSONB NOT NULL,
 
-    status TEXT CHECK (status IN ('PENDING', 'PROCESSING', 'PUBLISHED')) NOT NULL,
+    status TEXT CHECK (status IN ('PENDING', 'PROCESSING', 'PUBLISHED', 'FAILED')) NOT NULL,
     locked_until TIMESTAMP,
     retry_count INT DEFAULT 0,
+    trace_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    error_code TEXT,
+    error_message TEXT,
 
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     published_at TIMESTAMP
 );
 

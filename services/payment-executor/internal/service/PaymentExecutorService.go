@@ -75,8 +75,11 @@ func logPaymentStepFailure(ctx context.Context, req domain.PaymentInitiatedEvent
 		"sender_id":       req.SenderID,
 		"receiver_id":     req.ReceiverID,
 		"idempotency_key": req.IdempotencyKey,
+		"trace_id":        req.TraceID,
+		"request_id":      req.RequestID,
 		"amount":          req.Amount,
 		"currency":        req.Currency,
+		"retry_count":     req.RetryCount,
 		"error_type":      flowpayPaymentErrors.ToPaymentErrorType(err),
 		"error":           err.Error(),
 	})

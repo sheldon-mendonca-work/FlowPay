@@ -25,9 +25,13 @@ func (r *OutboxEventRepository) InsertOutboxEvent(tx *sql.Tx, ctx context.Contex
 			event_version,
 			payload,
 			status,
+			trace_id,
+			request_id,
+			retry_count,
+			locked_until,
 			created_at,
 			published_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW());
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW(), NOW());
 	`
 
 	res, err := tx.ExecContext(ctx,
@@ -39,6 +43,9 @@ func (r *OutboxEventRepository) InsertOutboxEvent(tx *sql.Tx, ctx context.Contex
 		payload.EventVersion,
 		payload.Payload,
 		payload.Status,
+		payload.TraceID,
+		payload.RequestID,
+		payload.RetryCount,
 	)
 
 	if err != nil {

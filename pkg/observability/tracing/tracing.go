@@ -59,6 +59,26 @@ func GetRequestID(ctx context.Context) string {
 	return ""
 }
 
+func WithTraceID(ctx context.Context, traceID string) context.Context {
+	if strings.TrimSpace(traceID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, traceIDContextKey, traceID)
+}
+
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	if strings.TrimSpace(requestID) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, requestIDContextKey, requestID)
+}
+
+func WithTraceAndRequestIDs(ctx context.Context, traceID string, requestID string) context.Context {
+	ctx = WithTraceID(ctx, traceID)
+	ctx = WithRequestID(ctx, requestID)
+	return ctx
+}
+
 func TracingMiddleware(serviceName string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/metrics" {
@@ -69,8 +89,7 @@ func TracingMiddleware(serviceName string, next http.Handler) http.Handler {
 		traceId := getOrCreateHeaderId(r, "X-Trace-Id", "trace")
 		requestId := getOrCreateHeaderId(r, "X-Request-Id", "req")
 
-		ctx := context.WithValue(r.Context(), traceIDContextKey, traceId)
-		ctx = context.WithValue(ctx, requestIDContextKey, requestId)
+		ctx := WithTraceAndRequestIDs(r.Context(), traceId, requestId)
 
 		w.Header().Set("X-Trace-Id", traceId)
 		w.Header().Set("X-Request-Id", requestId)

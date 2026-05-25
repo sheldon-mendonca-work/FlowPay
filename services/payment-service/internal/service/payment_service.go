@@ -156,7 +156,7 @@ func leaseExpiryFromNow() time.Time {
 	return time.Now().UTC().Add(5 * time.Minute)
 }
 
-func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent) (domain.OutboxEventType, error) {
+func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent, retryCount int8, traceID string, requestID string) (domain.OutboxEventType, error) {
 	payloadBytes, err := json.Marshal(event)
 	if err != nil {
 		return domain.OutboxEventType{}, err
@@ -176,6 +176,9 @@ func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent) (domain.Out
 		Status:        domain.OutboxEventPending,
 		Payload:       string(payloadBytes),
 		CreatedAt:     time.Now(),
+		TraceID:       traceID,
+		RequestID:     requestID,
+		RetryCount:    retryCount,
 	}, nil
 }
 
@@ -230,7 +233,7 @@ func generateReceiverTransaction(payment domain.Payment) (domain.Transaction, er
 	}, nil
 }
 
-func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string) (dto.PaymentResponseDTO, error) {
+func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string, traceId string, requestId string) (dto.PaymentResponseDTO, error) {
 	// Compute Request Hash
 	reqAsBytes, err := json.Marshal(req)
 	if err != nil {
@@ -271,6 +274,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		if existingIdempotency.RequestHash != payloadHash {
 			logger.LogEvent(ctx, "WARN", paymentServiceConstants.ServiceName, "payment_idempotency_mismatch", logger.Fields{
 				"idempotency_key": idempotencyKey,
+				"trace_id":        traceId,
 				"sender_id":       req.SenderID,
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
@@ -294,6 +298,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 		logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "idempotency_hit", logger.Fields{
 			"idempotency_key": idempotencyKey,
+			"trace_id":        traceId,
 			"status":          existingIdempotency.Status,
 			"payment_id":      cachedResponse.PaymentID,
 			"error_code":      existingIdempotency.ErrorCode,
@@ -322,6 +327,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		case rollbackErr == nil && rollbackDueToError:
 			logger.LogEvent(ctx, "WARN", paymentServiceConstants.ServiceName, "payment_tx_rolled_back", logger.Fields{
 				"idempotency_key": idempotencyKey,
+				"trace_id":        traceId,
 				"sender_id":       req.SenderID,
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
@@ -331,6 +337,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		case rollbackErr != nil && rollbackErr != sql.ErrTxDone:
 			logger.LogEvent(ctx, "ERROR", paymentServiceConstants.ServiceName, "payment_tx_rollback_failed", logger.Fields{
 				"idempotency_key": idempotencyKey,
+				"trace_id":        traceId,
 				"sender_id":       req.SenderID,
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
@@ -349,6 +356,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
 			logger.LogEvent(ctx, "ERROR", paymentServiceConstants.ServiceName, "payment_tx_rollback_failed", logger.Fields{
 				"idempotency_key": idempotencyKey,
+				"trace_id":        traceId,
 				"sender_id":       req.SenderID,
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
@@ -359,6 +367,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		} else {
 			logger.LogEvent(ctx, "WARN", paymentServiceConstants.ServiceName, "payment_tx_rolled_back", logger.Fields{
 				"idempotency_key": idempotencyKey,
+				"trace_id":        traceId,
 				"sender_id":       req.SenderID,
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
@@ -410,7 +419,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		CreatedAt:      time.Now(),
 	}
 
-	outboxEvent, err := MapPaymentInitiatedToOutbox(paymentInitiatedEvent)
+	outboxEvent, err := MapPaymentInitiatedToOutbox(paymentInitiatedEvent, 0, traceId, requestId)
 	if err != nil {
 		if isDeterministicBusinessFailure(err) {
 			return markFailedAndCommit("outbox_event_creation", err)
@@ -420,12 +429,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 	logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "outbox_event_inserted", logger.Fields{
 		"idempotency_key":      idempotencyKey,
+		"trace_id":             traceId,
 		"outbox_event_id":      outboxEvent.ID,
 		"outbox_event_version": outboxEvent.EventVersion,
 		"sender_id":            req.SenderID,
 		"receiver_id":          req.ReceiverID,
 		"amount":               req.Amount,
 		"currency":             req.Currency,
+		"retry_count":          paymentInitiatedEvent.RetryCount,
 		"error_type":           flowpayPaymentErrors.ErrorTypeNone,
 	})
 
@@ -452,12 +463,14 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 	logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "payment_tx_committed", logger.Fields{
 		"idempotency_key": idempotencyKey,
+		"trace_id":        traceId,
 		"payment_id":      paymentID,
 		"outbox_event_id": outboxEvent.ID,
 		"sender_id":       req.SenderID,
 		"receiver_id":     req.ReceiverID,
 		"amount":          req.Amount,
 		"currency":        req.Currency,
+		"retry_count":     paymentInitiatedEvent.RetryCount,
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
 	})
 	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "committed payment transaction payment_id=%s outboxEvent_id=%s idempotency_key=%s", paymentID, outboxEvent.ID, idempotencyKey)
