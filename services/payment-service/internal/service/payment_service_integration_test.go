@@ -399,12 +399,16 @@ func TestCreatePayment_Success(t *testing.T) {
 		t.Fatalf("TestCreatePayment_Success: failed to decode outbox payload: %v", err)
 	}
 
-	if eventPayload.TraceID != "" {
-		t.Fatalf("TestCreatePayment_Success: expected payload trace id to be empty, got %s", eventPayload.TraceID)
+	if eventPayload.TraceID == "" {
+		t.Fatalf("TestCreatePayment_Success: expected payload trace id to have a value, got %s", eventPayload.TraceID)
 	}
 
-	if eventPayload.RequestID != "" {
-		t.Fatalf("TestCreatePayment_Success: expected payload request id to be empty, got %s", eventPayload.RequestID)
+	if eventPayload.RequestID == "" {
+		t.Fatalf("TestCreatePayment_Success: expected payload request id to have a value, got %s", eventPayload.RequestID)
+	}
+
+	if eventPayload.RetryCount != 0 {
+		t.Fatalf("TestCreatePayment_Success: expected payload retry count to have a value of 0, got %d", eventPayload.RetryCount)
 	}
 }
 

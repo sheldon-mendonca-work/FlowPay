@@ -41,6 +41,12 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
+			logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "fetching_kafka_message_failed", logger.Fields{
+				"topic":     msg.Topic,
+				"partition": msg.Partition,
+				"offset":    msg.Offset,
+				"error":     err.Error(),
+			})
 			return err
 		}
 
@@ -75,14 +81,13 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 		if err != nil {
 			errorType := flowpayPaymentErrors.ToPaymentErrorType(err)
 			logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "payment_execution_failed", logger.Fields{
-				"payment_id":        event.ID,
-				"idempotency_key":   event.IdempotencyKey,
-				"topic":             msg.Topic,
-				"partition":         msg.Partition,
-				"offset":            msg.Offset,
-				"kafka_retry_count": event.RetryCount,
-				"error_type":        errorType,
-				"error":             err.Error(),
+				"payment_id":      event.ID,
+				"idempotency_key": event.IdempotencyKey,
+				"topic":           msg.Topic,
+				"partition":       msg.Partition,
+				"offset":          msg.Offset,
+				"error_type":      errorType,
+				"error":           err.Error(),
 			})
 			if shouldCommitOnHandlerError(err) {
 				if err := c.commitMessage(ctx, msg); err != nil {

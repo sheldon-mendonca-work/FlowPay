@@ -20,13 +20,14 @@ func main() {
 	defer db.Close()
 
 	outboxRepository := repo.NewOutboxEventRepository(db)
+	idempotencyRepository := repo.NewPaymentIdempotencyRepository(db)
 
 	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
 	kafkaTopic := utils.GetEnv("KAFKA_TOPIC", "payment.initiated")
 
 	kafkaProducer := kafka.NewProducer([]string{kafkaBroker}, kafkaTopic)
 
-	outboxWorker := worker.NewOutboxWorker(db, *outboxRepository, *kafkaProducer)
+	outboxWorker := worker.NewOutboxWorker(db, *outboxRepository, *idempotencyRepository, *kafkaProducer)
 
 	log.Printf("transaction processor worker starting broker=%s topic=%s", kafkaBroker, kafkaTopic)
 	outboxWorker.Start(ctx)

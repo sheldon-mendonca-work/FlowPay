@@ -33,6 +33,10 @@ func ToPaymentErrorType(err error) string {
 		errors.Is(err, ErrSenderReceiverIDMatching),
 		errors.Is(err, ErrAmountMustBeGreaterThanZero),
 		errors.Is(err, ErrCurrencyRequired),
+		errors.Is(err, ErrSenderAccountNotFound),
+		errors.Is(err, ErrReceiverAccountNotFound),
+		errors.Is(err, ErrSenderCurrencyMismatch),
+		errors.Is(err, ErrAccountCurrencyMismatch),
 		errors.Is(err, ErrIdempotencyKeyRequired),
 		errors.Is(err, ErrInvalidRequestBody),
 		errors.Is(err, ErrMethodNotAllowed):

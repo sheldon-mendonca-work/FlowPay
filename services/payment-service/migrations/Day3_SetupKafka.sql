@@ -8,6 +8,7 @@ CREATE TABLE outbox_events (
 
     event_type TEXT NOT NULL,
     event_version INTEGER NOT NULL,
+    idempotency_key TEXT NOT NULL,
 
     payload JSONB NOT NULL,
 

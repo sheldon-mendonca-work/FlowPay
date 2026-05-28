@@ -78,20 +78,20 @@ func validateSenderAndReceiverAccounts(accounts map[string]domain.Account, req d
 
 	senderAccount, senderExists := accounts[req.SenderID]
 	if !senderExists {
-		return fmt.Errorf("sender account is not present: %s", req.SenderID)
+		return fmt.Errorf("%w: %s", flowpayPaymentErrors.ErrSenderAccountNotFound, req.SenderID)
 	}
 
 	receiverAccount, receiverExists := accounts[req.ReceiverID]
 	if !receiverExists {
-		return fmt.Errorf("receiver account is not present: %s", req.ReceiverID)
+		return fmt.Errorf("%w: %s", flowpayPaymentErrors.ErrReceiverAccountNotFound, req.ReceiverID)
 	}
 
 	if senderAccount.Currency != req.Currency {
-		return fmt.Errorf("sender account currency not matching with request: %s", req.SenderID)
+		return fmt.Errorf("%w: %s", flowpayPaymentErrors.ErrSenderCurrencyMismatch, req.SenderID)
 	}
 
 	if senderAccount.Currency != receiverAccount.Currency {
-		return fmt.Errorf("sender or receiver account currency mismatch: %s", req.SenderID)
+		return fmt.Errorf("%w: %s", flowpayPaymentErrors.ErrAccountCurrencyMismatch, req.SenderID)
 	}
 
 	if senderAccount.Balance < amount {
@@ -145,7 +145,24 @@ func replayableIdempotencyError(record domain.PaymentIdempotencyKey) error {
 }
 
 func shouldPersistFailedIdempotency(err error) bool {
-	return !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded)
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, flowpayPaymentErrors.ErrSenderIDRequired),
+		errors.Is(err, flowpayPaymentErrors.ErrReceiverIDRequired),
+		errors.Is(err, flowpayPaymentErrors.ErrSenderReceiverIDMatching),
+		errors.Is(err, flowpayPaymentErrors.ErrAmountMustBeGreaterThanZero),
+		errors.Is(err, flowpayPaymentErrors.ErrCurrencyRequired),
+		errors.Is(err, flowpayPaymentErrors.ErrIdempotencyKeyRequired),
+		errors.Is(err, flowpayPaymentErrors.ErrSenderAccountNotFound),
+		errors.Is(err, flowpayPaymentErrors.ErrReceiverAccountNotFound),
+		errors.Is(err, flowpayPaymentErrors.ErrSenderCurrencyMismatch),
+		errors.Is(err, flowpayPaymentErrors.ErrAccountCurrencyMismatch),
+		errors.Is(err, flowpayPaymentErrors.ErrInsufficientBalance):
+		return true
+	default:
+		return false
+	}
 }
 
 func isDeterministicBusinessFailure(err error) bool {
@@ -168,17 +185,18 @@ func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent, retryCount 
 	}
 
 	return domain.OutboxEventType{
-		ID:            eventId,
-		AggregateType: "payment",
-		AggregateID:   event.ID,
-		EventType:     "payment_initiated",
-		EventVersion:  1,
-		Status:        domain.OutboxEventPending,
-		Payload:       string(payloadBytes),
-		CreatedAt:     time.Now(),
-		TraceID:       traceID,
-		RequestID:     requestID,
-		RetryCount:    retryCount,
+		ID:             eventId,
+		AggregateType:  "payment",
+		AggregateID:    event.ID,
+		EventType:      "payment_initiated",
+		EventVersion:   1,
+		Status:         domain.OutboxEventPending,
+		Payload:        string(payloadBytes),
+		CreatedAt:      time.Now(),
+		TraceID:        traceID,
+		RequestID:      requestID,
+		RetryCount:     retryCount,
+		IdempotencyKey: event.IdempotencyKey,
 	}, nil
 }
 
@@ -415,6 +433,9 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		IdempotencyKey: idempotencyKey,
 		OwnerToken:     ownerToken,
 		Amount:         amount,
+		TraceID:        traceId,
+		RequestID:      requestId,
+		RetryCount:     0,
 		Currency:       req.Currency,
 		CreatedAt:      time.Now(),
 	}

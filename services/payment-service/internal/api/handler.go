@@ -110,8 +110,8 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 	start := time.Now()
 	reqIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
 	statusCode := http.StatusAccepted
-	traceID := strings.TrimSpace(r.Header.Get("Trace-Id"))
-	requestID := strings.TrimSpace(r.Header.Get("Request-Id"))
+	traceID := strings.TrimSpace(r.Header.Get("X-Trace-Id"))
+	requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
 
 	var req dto.PaymentRequestDTO
 	var serviceErr error

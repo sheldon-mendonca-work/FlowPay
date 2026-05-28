@@ -1,232 +1,131 @@
 # 🔧 FlowPay — Distributed Fintech System
 
-## 🧠 Objective
+Production-grade distributed payment system focused on reliability, idempotency, and fault tolerance.
 
-Build a **production-grade distributed payment system** 
+Built to learn and demonstrate real-world backend and distributed systems engineering.
 
-Focus areas:
+---
 
-* Strong consistency (Ledger-first design)
-* Idempotent APIs
-* Event-driven architecture (Kafka)
+## 🚀 Highlights
+
+* Distributed payment processing architecture
+* Transactional Outbox Pattern
+* Kafka-based async event processing
+* Idempotent payment APIs
+* Atomic money movement
+* Replay-safe event handling
+* Lease-based worker recovery
+* Structured observability and tracing
 * Failure-first system design
-* Observability (logs, metrics, tracing)
 
 ---
 
 ## 🏗️ Tech Stack
 
-* **Golang** (clean architecture)
-* **PostgreSQL** (source of truth)
-* **Kafka (KRaft)** (async event processing)
-* **Redis** (non-critical optimizations)
-* **Docker Compose** (local infra)
-* **Prometheus + Grafana** (metrics)
-* **Jaeger** (tracing)
+* Golang
+* PostgreSQL
+* Kafka (KRaft)
+* Redis
+* Docker Compose
+* Prometheus + Grafana
+* Jaeger
 
 ---
 
-## 🧩 System Components
+## 🧩 Services
 
 * API Gateway
-* Payment Service ✅ (Day 1)
-* Transaction Processor (planned)
-* Ledger Service (planned)
-* Wallet Service (planned)
-* Fraud, Offers, Scheduler, Reconciliation (planned)
+* Payment Service
+* Transaction Processor
+* Payment Executor
 
 ---
 
-## ⚖️ Core Invariants
+## ⚙️ Key Distributed Systems Concepts
 
-* Money correctness comes from **DB (Ledger later)**
-* APIs must be **idempotent**
-* Kafka = **at-least-once delivery**
-* System must tolerate:
-
-  * retries
-  * duplicates
-  * partial failures
-
----
-
-# 🚀 Progress
+* Transactional Outbox
+* At-Least-Once Delivery
+* Idempotency Keys
+* Retry & Replay Handling
+* Lease-Based Coordination
+* Crash Recovery
+* Event-Driven Architecture
+* Distributed Tracing
 
 ---
 
-## ✅ Day 0 — Infrastructure Setup
+# ✅ Progress
 
-### ✔ Implemented
+## Day 0 — Infrastructure
 
-* Dockerized infra:
-
-  * PostgreSQL
-  * Redis
-  * Kafka (KRaft mode)
-  * Kafka UI
-  * Prometheus
-  * Grafana
-  * Jaeger
-
-* Kafka:
-
-  * Topics created via config
-  * Manual produce/consume verified
-  * Persistence across restarts verified
-
-* API Gateway:
-
-  * `/health` endpoint working
+* Dockerized local distributed environment
+* Kafka + PostgreSQL + Redis setup
+* Observability stack setup
+* API Gateway initialization
 
 ---
 
-## ✅ Day 1 — Payment Service (Idempotent API)
+## Day 1 — Payment Service
 
-### 🎯 Goal
+Implemented:
 
-Build a **safe payment creation API** with:
+* Payment creation API
+* Idempotent request handling
+* Concurrency-safe inserts
+* Structured logging
+* Metrics and tracing
 
-* Idempotency
-* DB persistence
-* Concurrency safety
+Validated:
 
----
-
-### 🧩 API
-
-**POST /payments**
-
-```json
-{
-  "user_id": "user_1",
-  "amount": 100,
-  "currency": "INR",
-  "idempotency_key": "idem-123"
-}
-```
-
-**Response (202 Accepted)**
-
-```json
-{
-  "payment_id": "uuid",
-  "status": "CREATED"
-}
-```
+* Parallel request safety
+* Duplicate request handling
+* Conflict detection
 
 ---
 
-### 🗄️ Database
+## Day 2 — Async Processing Pipeline
 
-```sql
-CREATE TABLE payments (
-    payment_id UUID PRIMARY KEY,
-    user_id VARCHAR(50),
-    amount BIGINT,
-    currency TEXT,
-    status TEXT NOT NULL DEFAULT 'CREATED',
-    idempotency_key TEXT UNIQUE,
-    created_at TIMESTAMP,
-    updated_at TIMESTAMP
-);
-```
+Implemented:
 
----
+* Transactional outbox pattern
+* Kafka publishing worker
+* Lease-based event claiming
+* Retry handling
+* Failure recovery
+* Replay-safe processing
 
-### 🔐 Idempotency Strategy
+System now tolerates:
 
-* Enforced via:
-
-  ```text
-  UNIQUE(idempotency_key)
-  ```
-
-* Flow:
-
-  1. Try INSERT
-  2. If success → return response
-  3. If conflict:
-
-     * Same payload → return existing payment
-     * Different payload → return **409 Conflict**
+* worker crashes
+* duplicate events
+* partial failures
+* Kafka redelivery
 
 ---
 
-### ⚔️ Concurrency Handling
+## Day 3 — Payment Executor
 
-Tested with parallel requests:
+Implemented:
 
-```bash
-for i in {1..5}; do curl ... & done
-```
+* Kafka consumer
+* Atomic balance updates
+* Payment execution workflow
+* Ledger-style transaction recording
+* Idempotent replay handling
+* End-to-end trace propagation
 
-✔ Result:
+Core guarantee:
 
-* Only **1 row inserted**
-* All responses return same `payment_id`
-
----
-
-### 🔍 Observability
-
-* Structured logs:
-
-  * service
-  * endpoint
-  * trace_id
-  * request_id
-  * latency
-  * status
-
-* Middleware:
-
-  * Trace ID propagation
-  * Request ID generation
-
-* Prometheus metrics:
-
-  * request_count
-  * error_count
-  * request_latency
+* Money movement remains transactionally consistent even during retries and duplicate event delivery.
 
 ---
 
-### 🧠 Key Learnings
+## 📚 What This Project Demonstrates
 
-* DB-based idempotency > Redis-based idempotency
-* Insert-first pattern avoids race conditions
-* Unique constraints are concurrency primitives
-* Observability must be built from day 1
-
----
-
-### ⚠️ Edge Cases Handled
-
-* Duplicate requests (same payload)
-* Duplicate requests (different payload)
-* Concurrent writes (race conditions)
-* Invalid request body
-* Partial failure recovery (DB conflict handling)
-
----
-
-### 🧪 Validation
-
-* Manual API testing via curl
-* Parallel request simulation
-* DB verification:
-
-  ```sql
-  SELECT COUNT(*) FROM payments WHERE idempotency_key = '...';
-  ```
-
----
-
-## 🚧 Next
-
-* Day 2:
-
-  * Transaction Processor service
-  * Async consistency model
-
----
+* Backend engineering at scale
+* Distributed systems fundamentals
+* Event-driven architecture
+* Reliability engineering
+* Failure-oriented system design
+* Production-style observability
+* Financial consistency guarantees

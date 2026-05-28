@@ -43,6 +43,7 @@ func (r *OutboxEventRepository) ClaimBatch(ctx context.Context, batchSize int, m
 				retry_count,
 				trace_id,
 				request_id,
+				idempotency_key,
 				locked_until
 			FROM outbox_events
 			WHERE ((status = 'PENDING') OR (status = 'PROCESSING' AND locked_until < NOW())) AND retry_count < $2
@@ -75,6 +76,7 @@ func (r *OutboxEventRepository) ClaimBatch(ctx context.Context, batchSize int, m
 			&e.RetryCount,
 			&e.TraceID,
 			&e.RequestID,
+			&e.IdempotencyKey,
 			&e.LockedUntil,
 		)
 
@@ -115,6 +117,7 @@ func (r *OutboxEventRepository) ClaimBatch(ctx context.Context, batchSize int, m
             retry_count,
             trace_id,
             request_id,
+			idempotency_key,
             locked_until;
 		`
 
@@ -144,6 +147,7 @@ func (r *OutboxEventRepository) ClaimBatch(ctx context.Context, batchSize int, m
 			&e.RetryCount,
 			&e.TraceID,
 			&e.RequestID,
+			&e.IdempotencyKey,
 			&e.LockedUntil,
 		)
 		if err != nil {
