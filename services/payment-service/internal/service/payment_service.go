@@ -326,6 +326,10 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		return cachedResponse, nil
 	}
 
+	if existingIdempotency.PaymentID != "" {
+		paymentID = existingIdempotency.PaymentID
+	}
+
 	// Begin Transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

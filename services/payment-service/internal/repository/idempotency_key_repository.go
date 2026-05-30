@@ -73,11 +73,15 @@ func (r *PaymentIdempotencyRepository) ClaimOrGet(
 		return existing, false, nil
 	}
 
-	if err := r.takeOverClaim(ctx, tx, idempotency); err != nil {
+	existingPaymentId, err := r.takeOverClaim(ctx, tx, idempotency)
+	if err != nil {
 		return domain.PaymentIdempotencyKey{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
 		return domain.PaymentIdempotencyKey{}, false, err
+	}
+	if existingPaymentId != "" {
+		idempotency.PaymentID = existingPaymentId
 	}
 	committed = true
 	return idempotency, true, nil
@@ -167,27 +171,48 @@ func (r *PaymentIdempotencyRepository) takeOverClaim(
 	ctx context.Context,
 	tx *sql.Tx,
 	idempotency domain.PaymentIdempotencyKey,
-) error {
+) (string, error) {
 	query := `
-		UPDATE idempotency_keys
-		SET
-			owner_token = $2,
-			locked_until = $3,
-			updated_at = NOW()
-		WHERE idempotency_key = $1;
+		WITH updated AS (
+			UPDATE idempotency_keys
+			SET
+				owner_token = $2,
+				locked_until = $3,
+				updated_at = NOW()
+			WHERE idempotency_key = $1
+			RETURNING payment_id
+		)
+		SELECT
+			COUNT(*) AS affected_rows,
+			MAX(payment_id) AS payment_id
+		FROM updated;
 	`
-	res, err := tx.ExecContext(ctx, query, idempotency.IdempotencyKey, idempotency.OwnerToken, idempotency.LockedUntil)
+
+	var (
+		affectedRows    int
+		existingPayment string
+	)
+
+	err := tx.QueryRowContext(
+		ctx,
+		query,
+		idempotency.IdempotencyKey,
+		idempotency.OwnerToken,
+		idempotency.LockedUntil,
+	).Scan(&affectedRows, &existingPayment)
+
 	if err != nil {
-		return err
+		return "", err
 	}
-	rowsAffected, err := res.RowsAffected()
-	if err != nil {
-		return err
+
+	if affectedRows != 1 {
+		return "", fmt.Errorf(
+			"take over claim failed: expected 1 row affected, got %d",
+			affectedRows,
+		)
 	}
-	if rowsAffected != 1 {
-		return fmt.Errorf("take over claim failed: expected 1 row affected, got %d", rowsAffected)
-	}
-	return nil
+
+	return existingPayment, nil
 }
 
 func (r *PaymentIdempotencyRepository) GetByKey(
