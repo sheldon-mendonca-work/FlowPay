@@ -14,21 +14,8 @@ AND NOT EXISTS (
     WHERE p.id = i.payment_id
 );
 
--- 2. Payments missing completed idempotency.
-SELECT
-    p.id AS payment_id,
-    p.idempotency_key,
-    p.status AS payment_status,
-    i.status AS idempotency_status,
-    i.payment_id AS idempotency_payment_id
-FROM payments p
-LEFT JOIN idempotency_keys i
-    ON i.idempotency_key = p.idempotency_key
-WHERE i.idempotency_key IS NULL
-OR i.status != 'COMPLETED'
-OR i.payment_id IS DISTINCT FROM p.id;
 
--- 3. Idempotency rows missing canonical payment_id.
+-- 2. Idempotency rows missing canonical payment_id.
 SELECT
     i.idempotency_key,
     i.status,
@@ -39,7 +26,7 @@ SELECT
 FROM idempotency_keys i
 WHERE i.payment_id IS NULL;
 
--- 4. Duplicate canonical payment_id across idempotency rows.
+-- 3. Duplicate canonical payment_id across idempotency rows.
 SELECT
     i.payment_id,
     COUNT(*) AS idempotency_row_count,
@@ -50,7 +37,7 @@ GROUP BY i.payment_id
 HAVING COUNT(*) > 1
 ORDER BY idempotency_row_count DESC, i.payment_id;
 
--- 5. Expired IN_PROGRESS takeover candidates.
+-- 4. Expired IN_PROGRESS takeover candidates.
 SELECT
     i.idempotency_key,
     i.payment_id,
@@ -63,7 +50,7 @@ WHERE i.status = 'IN_PROGRESS'
 AND i.locked_until < NOW()
 ORDER BY i.locked_until ASC;
 
--- 6. IN_PROGRESS rows with no outbox event.
+-- 5. IN_PROGRESS rows with no outbox event.
 SELECT
     i.idempotency_key,
     i.payment_id,
@@ -78,7 +65,7 @@ AND NOT EXISTS (
     WHERE o.idempotency_key = i.idempotency_key
 );
 
--- 7. Idempotency/outbox payment_id divergence.
+-- 6. Idempotency/outbox payment_id divergence.
 SELECT
     i.idempotency_key,
     i.payment_id AS idempotency_payment_id,
@@ -92,7 +79,7 @@ JOIN outbox_events o
 WHERE i.payment_id IS NOT NULL
 AND o.aggregate_id IS DISTINCT FROM i.payment_id::text;
 
--- 8. Multiple outbox payment IDs for one idempotency key.
+-- 7. Multiple outbox payment IDs for one idempotency key.
 SELECT
     o.idempotency_key,
     COUNT(DISTINCT o.aggregate_id) AS outbox_payment_id_count,

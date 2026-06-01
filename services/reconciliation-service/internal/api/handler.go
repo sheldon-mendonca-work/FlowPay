@@ -32,6 +32,8 @@ func WriteJSONError(w http.ResponseWriter, message string, status int) {
 
 func reconciliationErrorResponse(err error) (string, int) {
 	switch {
+	case errors.Is(err, flowpayReconciliationErrors.ErrMethodDoesntExist):
+		return flowpayReconciliationErrors.ErrMethodDoesntExist.Error(), http.StatusNotFound
 	case errors.Is(err, flowpayReconciliationErrors.ErrMethodNotAllowed):
 		return flowpayReconciliationErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed
 	case errors.Is(err, context.DeadlineExceeded):
@@ -49,6 +51,8 @@ func reconciliationOutcome(status int, err error) string {
 		return "success"
 	case errors.Is(err, flowpayReconciliationErrors.ErrMethodNotAllowed):
 		return "method_not_allowed"
+	case errors.Is(err, flowpayReconciliationErrors.ErrMethodDoesntExist):
+		return "method_does_not_exist"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
 	case errors.Is(err, context.Canceled):
@@ -146,6 +150,19 @@ func (h *Handler) HandlePaymentChecks(w http.ResponseWriter, r *http.Request) {
 
 }
 
+func (h *Handler) writeUnknownCheck(w http.ResponseWriter, r *http.Request) {
+	err := flowpayReconciliationErrors.ErrMethodDoesntExist
+	message, status := reconciliationErrorResponse(err)
+	logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "reconciliation_method_doesnt_exist", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": status,
+		"outcome":     reconciliationOutcome(status, err),
+		"error_type":  reconciliationErrorType(err),
+	})
+	WriteJSONError(w, message, status)
+}
+
 func (h *Handler) HandleIndividualPaymentCheck(w http.ResponseWriter, r *http.Request) {
 	paymentCheckType := r.PathValue("payment_check_type")
 	switch {
@@ -156,7 +173,7 @@ func (h *Handler) HandleIndividualPaymentCheck(w http.ResponseWriter, r *http.Re
 		}
 	case paymentCheckType == constants.PaymentsWithInvalidTransactionPairCheckName:
 		{
-			h.HandleReconciliationChecks(w, r, constants.PaymentsWithInvalidTransactionPairCheckName, h.reconciliationService.GetPaymentsWithoutTransactions)
+			h.HandleReconciliationChecks(w, r, constants.PaymentsWithInvalidTransactionPairCheckName, h.reconciliationService.GetPaymentsWithoutDebitOrCredit)
 			return
 		}
 	case paymentCheckType == constants.PaymentsWithoutIdempotencyRowsCheckName:
@@ -179,17 +196,84 @@ func (h *Handler) HandleIndividualPaymentCheck(w http.ResponseWriter, r *http.Re
 		}
 	default:
 		{
-			err := flowpayReconciliationErrors.ErrMethodDoesntExist
-			message, status := reconciliationErrorResponse(err)
-			logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "reconciliation_method_doesnt_exist", logger.Fields{
-				"http_method": r.Method,
-				"http_path":   r.URL.Path,
-				"http_status": status,
-				"outcome":     reconciliationOutcome(status, err),
-				"error_type":  reconciliationErrorType(err),
-			})
-			WriteJSONError(w, message, status)
-
+			h.writeUnknownCheck(w, r)
 		}
 	}
+}
+
+func (h *Handler) HandleIdempotencyChecks(w http.ResponseWriter, r *http.Request) {
+	h.HandleReconciliationChecks(w, r, "all_idempotency", h.reconciliationService.RunIdempotencyChecks)
+}
+
+func (h *Handler) HandleIndividualIdempotencyCheck(w http.ResponseWriter, r *http.Request) {
+	idempotencyCheckType := r.PathValue("idempotency_check_type")
+
+	switch idempotencyCheckType {
+	case constants.IdempotencyCompletedWithoutPaymentCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyCompletedWithoutPayment)
+	case constants.IdempotencyMissingPaymentIDCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyMissingPaymentID)
+	case constants.IdempotencyDuplicatePaymentIDCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyDuplicatePaymentID)
+	case constants.IdempotencyExpiredInProgressCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyExpiredInProgress)
+	case constants.IdempotencyInProgressWithoutOutboxCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyInProgressWithoutOutbox)
+	case constants.IdempotencyOutboxPaymentIDMismatchCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyOutboxPaymentIDMismatch)
+	case constants.IdempotencyMultipleOutboxPaymentIDsCheckName:
+		h.HandleReconciliationChecks(w, r, idempotencyCheckType, h.reconciliationService.GetIdempotencyMultipleOutboxPaymentIDs)
+	default:
+		h.writeUnknownCheck(w, r)
+	}
+}
+
+func (h *Handler) HandleOutboxChecks(w http.ResponseWriter, r *http.Request) {
+	h.HandleReconciliationChecks(w, r, "all_outbox", h.reconciliationService.RunOutboxChecks)
+}
+
+func (h *Handler) HandleIndividualOutboxCheck(w http.ResponseWriter, r *http.Request) {
+	outboxCheckType := r.PathValue("outbox_check_type")
+
+	switch outboxCheckType {
+	case constants.OutboxStuckProcessingCheckName:
+		h.HandleReconciliationChecks(w, r, outboxCheckType, h.reconciliationService.GetOutboxStuckProcessing)
+	case constants.OutboxFailedRetryExhaustedCheckName:
+		h.HandleReconciliationChecks(w, r, outboxCheckType, h.reconciliationService.GetOutboxFailedRetryExhausted)
+	case constants.OutboxEligibleBacklogCheckName:
+		h.HandleReconciliationChecks(w, r, outboxCheckType, h.reconciliationService.GetOutboxEligibleBacklog)
+	case constants.OutboxBacklogSummaryCheckName:
+		h.HandleReconciliationChecks(w, r, outboxCheckType, h.reconciliationService.GetOutboxBacklogSummary)
+	case constants.OutboxWithoutIdempotencyRowsCheckName:
+		h.HandleReconciliationChecks(w, r, outboxCheckType, h.reconciliationService.GetOutboxWithoutIdempotencyRows)
+	case constants.OutboxPublishedWithoutPaymentCheckName:
+		h.HandleReconciliationChecks(w, r, outboxCheckType, h.reconciliationService.GetOutboxPublishedWithoutPayment)
+	default:
+		h.writeUnknownCheck(w, r)
+	}
+}
+
+func (h *Handler) HandleTransactionChecks(w http.ResponseWriter, r *http.Request) {
+	h.HandleReconciliationChecks(w, r, "all_transactions", h.reconciliationService.RunTransactionChecks)
+}
+
+func (h *Handler) HandleIndividualTransactionCheck(w http.ResponseWriter, r *http.Request) {
+	transactionCheckType := r.PathValue("transaction_check_type")
+
+	switch transactionCheckType {
+	case constants.TransactionsMissingLedgerSideCheckName:
+		h.HandleReconciliationChecks(w, r, transactionCheckType, h.reconciliationService.GetTransactionsMissingLedgerSide)
+	case constants.TransactionsAmountCurrencyImbalanceCheckName:
+		h.HandleReconciliationChecks(w, r, transactionCheckType, h.reconciliationService.GetTransactionsAmountCurrencyImbalance)
+	case constants.TransactionsWithoutPaymentsCheckName:
+		h.HandleReconciliationChecks(w, r, transactionCheckType, h.reconciliationService.GetTransactionsWithoutPayments)
+	case constants.TransactionsStatusMismatchCheckName:
+		h.HandleReconciliationChecks(w, r, transactionCheckType, h.reconciliationService.GetTransactionsStatusMismatch)
+	default:
+		h.writeUnknownCheck(w, r)
+	}
+}
+
+func (h *Handler) HandleAllReconciliationChecks(w http.ResponseWriter, r *http.Request) {
+	h.HandleReconciliationChecks(w, r, "all_reconciliation", h.reconciliationService.RunAllChecks)
 }
