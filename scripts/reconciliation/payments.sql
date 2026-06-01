@@ -52,3 +52,17 @@ FROM payments p
 JOIN idempotency_keys i
     ON i.idempotency_key = p.idempotency_key
 WHERE i.payment_id IS DISTINCT FROM p.id;
+
+-- 5. Payments missing completed idempotency.
+SELECT
+    p.id AS payment_id,
+    p.idempotency_key,
+    p.status AS payment_status,
+    i.status AS idempotency_status,
+    i.payment_id AS idempotency_payment_id
+FROM payments p
+LEFT JOIN idempotency_keys i
+    ON i.idempotency_key = p.idempotency_key
+WHERE i.idempotency_key IS NULL
+OR i.status != 'COMPLETED'
+OR i.payment_id IS DISTINCT FROM p.id;

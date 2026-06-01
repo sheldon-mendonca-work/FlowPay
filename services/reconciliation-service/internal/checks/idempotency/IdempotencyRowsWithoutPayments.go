@@ -8,14 +8,14 @@ import (
 	"flowpay/reconciliation-service/internal/models"
 )
 
-func BuildPaymentsWithoutTransactionsAnomalies(payments []domain.Payment) []models.Anomaly {
-	anomalies := make([]models.Anomaly, 0, len(payments))
+func BuildIdempotencyRowsWithoutPaymentsAnomalies(idemptencies []domain.PaymentIdempotencyKey) []models.Anomaly {
+	anomalies := make([]models.Anomaly, 0, len(idemptencies))
 
-	for _, payment := range payments {
+	for _, idempotency := range idemptencies {
 		anomalies = append(anomalies, models.Anomaly{
 			CheckName:   constants.PaymentsWithoutTransactionsCheckName,
-			EntityType:  "payment",
-			EntityID:    payment.ID,
+			EntityType:  "idempotency_key",
+			EntityID:    idempotency.IdempotencyKey,
 			Description: fmt.Sprintf("No matching transactions found"),
 			Severity:    models.CRITICAL,
 		})

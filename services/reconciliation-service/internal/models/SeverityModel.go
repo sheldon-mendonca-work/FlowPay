@@ -3,7 +3,7 @@ package models
 type Severity string
 
 const (
-	INFO     Severity = "info"
-	WARN     Severity = "warn"
-	CRITICAL Severity = "critical"
+	INFO     Severity = "INFO"
+	WARN     Severity = "WARN"
+	CRITICAL Severity = "CRITICAL"
 )

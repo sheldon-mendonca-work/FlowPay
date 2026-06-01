@@ -17,7 +17,8 @@ func ToReconciliationErrorType(err error) string {
 	switch {
 	case err == nil:
 		return ErrorTypeNone
-	case errors.Is(err, ErrMethodNotAllowed):
+	case errors.Is(err, ErrMethodDoesntExist),
+		errors.Is(err, ErrMethodNotAllowed):
 		return ErrorTypeValidationError
 	case errors.Is(err, context.DeadlineExceeded):
 		return ErrorTypeTimeout

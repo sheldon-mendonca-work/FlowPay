@@ -1,3 +1,17 @@
 package constants
 
 const ServiceName = "reconciliation-service"
+
+const PaymentsWithoutTransactionsCheckName = "payments_without_transactions"
+const PaymentsWithInvalidTransactionPairCheckName = "payments_invalid_transaction_pair"
+const PaymentsWithoutIdempotencyRowsCheckName = "payments_without_idempotency_rows"
+const PaymentsWithIdempotencyPaymentIDMismatchCheckName = "payments_with_idempotency_payment_id_mismatch"
+const PaymentsMissingCompletedIdempotencyCheckName = "payments_missing_completed_idempotency"
+
+const IdempotencyCompletedWithoutPaymentCheckName = "idempotency_completed_without_payment"
+const IdempotencyMissingPaymentIDCheckName = "idempotency_missing_payment_id"
+const IdempotencyDuplicatePaymentIDCheckName = "idempotency_duplicate_payment_id"
+const IdempotencyExpiredInProgressCheckName = "idempotency_expired_in_progress"
+const IdempotencyInProgressWithoutOutboxCheckName = "idempotency_in_progress_without_outbox"
+const IdempotencyOutboxPaymentIDMismatchCheckName = "idempotency_outbox_payment_id_mismatch"
+const IdempotencyMultipleOutboxPaymentIDsCheckName = "idempotency_multiple_outbox_payment_ids"

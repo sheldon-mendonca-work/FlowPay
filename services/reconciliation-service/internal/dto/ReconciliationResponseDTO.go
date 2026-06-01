@@ -9,6 +9,7 @@ type ReconciliationResponseDTO struct {
 }
 
 type AnomalyResponseDTO struct {
+	CheckName   string `json:"check_name"`
 	EntityType  string `json:"entity_type"`
 	EntityID    string `json:"entity_id"`
 	Description string `json:"description"`

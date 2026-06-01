@@ -47,7 +47,20 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
+
+	mux.HandleFunc("/reconciliation/all", handler.HandleAllReconciliationChecks)
+
 	mux.HandleFunc("/reconciliation/payments", handler.HandlePaymentChecks)
+	mux.HandleFunc("/reconciliation/payments/{payment_check_type}", handler.HandleIndividualPaymentCheck)
+
+	mux.HandleFunc("/reconciliation/idempotency", handler.HandleIdempotencyChecks)
+	mux.HandleFunc("/reconciliation/idempotency/{idempotency_check_type}", handler.HandleIndividualIdempotencyCheck)
+
+	mux.HandleFunc("/reconciliation/outbox", handler.HandleOutboxChecks)
+	mux.HandleFunc("/reconciliation/outbox/{outbox_check_type}", handler.HandleIndividualOutboxCheck)
+
+	mux.HandleFunc("/reconciliation/transactions", handler.HandleTransactionChecks)
+	mux.HandleFunc("/reconciliation/transactions/{transaction_check_type}", handler.HandleIndividualTransactionCheck)
 
 	log.Println("Reconciliation service running on :8004")
 	log.Fatal(http.ListenAndServe(":8004", tracing.TracingMiddleware(constants.ServiceName, mux)))
