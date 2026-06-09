@@ -10,16 +10,16 @@ import (
 func TestValidateSenderAndReceiverAccounts_SameUser(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"sender": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 		"receiver": {
-			ID:       "sender",
-			UserID:   "user2",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user2",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 	}
 
@@ -40,10 +40,10 @@ func TestValidateSenderAndReceiverAccounts_SameUser(t *testing.T) {
 func TestValidateSenderAndReceiverAccounts_SenderAccountMissing(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"sender": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 	}
 
@@ -64,10 +64,10 @@ func TestValidateSenderAndReceiverAccounts_SenderAccountMissing(t *testing.T) {
 func TestValidateSenderAndReceiverAccounts_ReceiverAccountMissing(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"receiver": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 	}
 
@@ -88,16 +88,16 @@ func TestValidateSenderAndReceiverAccounts_ReceiverAccountMissing(t *testing.T) 
 func TestValidateSenderAndReceiverAccounts_AccountCurrencyMismatch(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"sender": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 		"receiver": {
-			ID:       "receiver",
-			UserID:   "user2",
-			Balance:  5000,
-			Currency: "USD",
+			ID:          "receiver",
+			AccountName: "user2",
+			Balance:     5000,
+			Currency:    "USD",
 		},
 	}
 
@@ -118,16 +118,16 @@ func TestValidateSenderAndReceiverAccounts_AccountCurrencyMismatch(t *testing.T)
 func TestValidateSenderAndReceiverAccounts_RequestCurrencyMismatch(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"sender": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 		"receiver": {
-			ID:       "receiver",
-			UserID:   "user2",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "receiver",
+			AccountName: "user2",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 	}
 
@@ -148,16 +148,16 @@ func TestValidateSenderAndReceiverAccounts_RequestCurrencyMismatch(t *testing.T)
 func TestValidateSenderAndReceiverAccounts_SenderBalanceInsufficient(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"sender": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  50,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     50,
+			Currency:    "INR",
 		},
 		"receiver": {
-			ID:       "receiver",
-			UserID:   "user2",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "receiver",
+			AccountName: "user2",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 	}
 
@@ -178,16 +178,16 @@ func TestValidateSenderAndReceiverAccounts_SenderBalanceInsufficient(t *testing.
 func TestValidateSenderAndReceiverAccounts_ValidAccounts(t *testing.T) {
 	accounts := map[string]domain.Account{
 		"sender": {
-			ID:       "sender",
-			UserID:   "user1",
-			Balance:  10000,
-			Currency: "INR",
+			ID:          "sender",
+			AccountName: "user1",
+			Balance:     10000,
+			Currency:    "INR",
 		},
 		"receiver": {
-			ID:       "receiver",
-			UserID:   "user2",
-			Balance:  5000,
-			Currency: "INR",
+			ID:          "receiver",
+			AccountName: "user2",
+			Balance:     5000,
+			Currency:    "INR",
 		},
 	}
 

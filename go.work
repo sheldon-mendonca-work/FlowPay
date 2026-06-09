@@ -2,6 +2,7 @@ go 1.26.3
 
 use (
 	./pkg
+	./services/offer-service
 	./services/payment-executor
 	./services/payment-service
 	./services/reconciliation-service

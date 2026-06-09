@@ -52,17 +52,17 @@ func seedAccountsAndIdempotency(t *testing.T, db *sql.DB, event domain.PaymentIn
 	t.Helper()
 
 	senderAccount := domain.Account{
-		ID:       event.SenderID,
-		UserID:   "executor-integration-sender",
-		Balance:  100000,
-		Currency: event.Currency,
+		ID:          event.SenderID,
+		AccountName: "executor-integration-sender",
+		Balance:     100000,
+		Currency:    event.Currency,
 	}
 
 	receiverAccount := domain.Account{
-		ID:       event.ReceiverID,
-		UserID:   "executor-integration-receiver",
-		Balance:  25000,
-		Currency: event.Currency,
+		ID:          event.ReceiverID,
+		AccountName: "executor-integration-receiver",
+		Balance:     25000,
+		Currency:    event.Currency,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -71,9 +71,9 @@ func seedAccountsAndIdempotency(t *testing.T, db *sql.DB, event domain.PaymentIn
 	cleanupExecutorArtifacts(t, db, event)
 
 	if _, err := db.ExecContext(ctx, `
-		INSERT INTO accounts (id, user_id, balance, currency, created_at, updated_at)
+		INSERT INTO accounts (id, account_name, balance, currency, created_at, updated_at)
 		VALUES ($1, $2, $3, $4, NOW(), NOW()), ($5, $6, $7, $8, NOW(), NOW())
-	`, senderAccount.ID, senderAccount.UserID, senderAccount.Balance, senderAccount.Currency, receiverAccount.ID, receiverAccount.UserID, receiverAccount.Balance, receiverAccount.Currency); err != nil {
+	`, senderAccount.ID, senderAccount.AccountName, senderAccount.Balance, senderAccount.Currency, receiverAccount.ID, receiverAccount.AccountName, receiverAccount.Balance, receiverAccount.Currency); err != nil {
 		t.Fatalf("seedAccountsAndIdempotency: failed to insert accounts: %v", err)
 	}
 

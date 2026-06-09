@@ -1,0 +1,56 @@
+package main
+
+import (
+	"flowpay/offer-service/internal/api"
+	"flowpay/offer-service/internal/constants"
+	"flowpay/offer-service/internal/infra"
+	"flowpay/offer-service/internal/repository"
+	"flowpay/offer-service/internal/service"
+	"flowpay/pkg/observability/metrics"
+	"flowpay/pkg/observability/tracing"
+	"log"
+	"net/http"
+
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+func getHealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.Write([]byte("ok"))
+}
+
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	promhttp.Handler().ServeHTTP(w, r)
+}
+
+func main() {
+	metrics.InitOfferMetrics()
+	db := infra.InitDB()
+
+	defer db.Close()
+
+	offerRepository := repository.NewOfferRepository(db)
+	companyRepository := repository.NewCompanyRepository(db)
+	offerEventsRepository := repository.NewOfferEventsRepository(db)
+	offerIdempotencyRepository := repository.NewOfferIdempotencyRepository(db)
+	offerRedemptionRepository := repository.NewOfferRedemptionsRepository(db)
+	offerReservationRepository := repository.NewOfferReservationsRepository(db)
+	usersRepository := repository.NewUserRepository(db)
+
+	offerService := service.NewOfferService(db, offerRepository, companyRepository,
+		offerEventsRepository,
+		offerIdempotencyRepository,
+		offerRedemptionRepository,
+		offerReservationRepository,
+		usersRepository)
+
+	handler := api.NewHandler(offerService)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", getHealthCheck)
+	mux.HandleFunc("/metrics", handleMetrics)
+	mux.HandleFunc("/offers", handler.HandleOfferTransactions)
+	mux.HandleFunc("/offers/{offerID}", handler.HandleOfferIdTransactions)
+	mux.HandleFunc("/offers/code/{offerCode}", handler.HandleOfferCodeTransactions)
+	log.Println("Offer service running on :8005")
+	log.Fatal(http.ListenAndServe(":8005", tracing.TracingMiddleware(constants.ServiceName, mux)))
+}

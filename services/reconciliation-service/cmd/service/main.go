@@ -24,7 +24,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	metrics.InitMetrics()
+	metrics.InitReconciliationMetrics()
 	db := infra.InitDB()
 	defer db.Close()
 

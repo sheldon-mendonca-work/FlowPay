@@ -17,7 +17,7 @@ func NewAccountRepository(db *sql.DB) *AccountRepository {
 
 func (r *AccountRepository) GetAccounsBySenderReceiverId(ctx context.Context, tx *sql.Tx, senderID string, receiverID string) (map[string]domain.Account, error) {
 	query := `
-		SELECT id, user_id, balance, currency
+		SELECT id, account_name, balance, currency
 		FROM accounts
 		WHERE id in ($1, $2)
 		ORDER BY id
@@ -37,7 +37,7 @@ func (r *AccountRepository) GetAccounsBySenderReceiverId(ctx context.Context, tx
 		var acc domain.Account
 		err := rows.Scan(
 			&acc.ID,
-			&acc.UserID,
+			&acc.AccountName,
 			&acc.Balance,
 			&acc.Currency,
 		)

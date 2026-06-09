@@ -27,7 +27,7 @@ ADD CONSTRAINT uq_payments_idempotency_key UNIQUE (idempotency_key);
 -- create accouunts table
 CREATE TABLE accounts (
     id UUID PRIMARY KEY,
-    user_id TEXT NOT NULL,
+    account_name TEXT NOT NULL,
     balance BIGINT NOT NULL CHECK (balance >= 0),
     currency TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

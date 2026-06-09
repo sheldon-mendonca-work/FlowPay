@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"flowpay/reconciliation-service/internal/checks/idempotency"
+	idempotencyCheck "flowpay/reconciliation-service/internal/checks/idempotency"
 	"flowpay/reconciliation-service/internal/checks/outbox"
 	"flowpay/reconciliation-service/internal/checks/payment"
 	transactioncheck "flowpay/reconciliation-service/internal/checks/transaction"
@@ -223,7 +223,7 @@ func (s *ReconciliationService) GetIdempotencyCompletedWithoutPayment(ctx contex
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildCompletedWithoutPaymentAnomalies(idempotencies)
+	anomalies := idempotencyCheck.BuildCompletedWithoutPaymentAnomalies(idempotencies)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }
@@ -248,7 +248,7 @@ func (s *ReconciliationService) GetIdempotencyMissingPaymentID(ctx context.Conte
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildMissingPaymentIDAnomalies(idempotencies)
+	anomalies := idempotencyCheck.BuildMissingPaymentIDAnomalies(idempotencies)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }
@@ -273,7 +273,7 @@ func (s *ReconciliationService) GetIdempotencyDuplicatePaymentID(ctx context.Con
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildDuplicatePaymentIDAnomalies(duplicates)
+	anomalies := idempotencyCheck.BuildDuplicatePaymentIDAnomalies(duplicates)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }
@@ -298,7 +298,7 @@ func (s *ReconciliationService) GetIdempotencyExpiredInProgress(ctx context.Cont
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildExpiredInProgressAnomalies(expiredRows)
+	anomalies := idempotencyCheck.BuildExpiredInProgressAnomalies(expiredRows)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }
@@ -323,7 +323,7 @@ func (s *ReconciliationService) GetIdempotencyInProgressWithoutOutbox(ctx contex
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildInProgressWithoutOutboxAnomalies(idempotencies)
+	anomalies := idempotencyCheck.BuildInProgressWithoutOutboxAnomalies(idempotencies)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }
@@ -348,7 +348,7 @@ func (s *ReconciliationService) GetIdempotencyOutboxPaymentIDMismatch(ctx contex
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildOutboxPaymentIDMismatchAnomalies(mismatches)
+	anomalies := idempotencyCheck.BuildOutboxPaymentIDMismatchAnomalies(mismatches)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }
@@ -373,7 +373,7 @@ func (s *ReconciliationService) GetIdempotencyMultipleOutboxPaymentIDs(ctx conte
 		return nil, err
 	}
 
-	anomalies := idempotency.BuildMultipleOutboxPaymentIDsAnomalies(rows)
+	anomalies := idempotencyCheck.BuildMultipleOutboxPaymentIDsAnomalies(rows)
 	response = toAnomalyResponseDTOs(response, anomalies)
 	return response, nil
 }

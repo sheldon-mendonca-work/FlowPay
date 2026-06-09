@@ -60,17 +60,17 @@ func createTwoAccounts(t *testing.T, db *sql.DB) (domain.Account, domain.Account
 	accountRepository := repository.NewAccountRepository(db)
 
 	senderAccount := domain.Account{
-		ID:       "11111111-1111-1111-1111-111111111111",
-		UserID:   "integration-sender",
-		Balance:  100000,
-		Currency: "INR",
+		ID:          "11111111-1111-1111-1111-111111111111",
+		AccountName: "integration-sender",
+		Balance:     100000,
+		Currency:    "INR",
 	}
 
 	receiverAccount := domain.Account{
-		ID:       "22222222-2222-2222-2222-222222222222",
-		UserID:   "integration-receiver",
-		Balance:  25000,
-		Currency: "INR",
+		ID:          "22222222-2222-2222-2222-222222222222",
+		AccountName: "integration-receiver",
+		Balance:     25000,
+		Currency:    "INR",
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

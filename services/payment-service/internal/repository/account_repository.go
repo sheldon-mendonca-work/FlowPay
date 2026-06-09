@@ -19,7 +19,7 @@ func (r *AccountRepository) CreateAccount(ctx context.Context, account domain.Ac
 	query := `
 		INSERT INTO accounts (
 			id,
-			user_id,
+			account_name,
 			balance,
 			currency,
 			created_at,
@@ -31,7 +31,7 @@ func (r *AccountRepository) CreateAccount(ctx context.Context, account domain.Ac
 	_, err := r.db.ExecContext(ctx,
 		query,
 		account.ID,
-		account.UserID,
+		account.AccountName,
 		account.Balance,
 		account.Currency,
 	)
@@ -45,7 +45,7 @@ func (r *AccountRepository) CreateAccount(ctx context.Context, account domain.Ac
 
 func (r *AccountRepository) GetAccountsBySenderReceiverId(ctx context.Context, tx *sql.Tx, senderId string, receiverId string) (map[string]domain.Account, error) {
 	query := `
-		SELECT id, user_id, balance, currency 
+		SELECT id, account_name, balance, currency 
 		FROM accounts
 		WHERE id IN ($1, $2)
 		ORDER BY id
@@ -63,7 +63,7 @@ func (r *AccountRepository) GetAccountsBySenderReceiverId(ctx context.Context, t
 		var acc domain.Account
 		err := rows.Scan(
 			&acc.ID,
-			&acc.UserID,
+			&acc.AccountName,
 			&acc.Balance,
 			&acc.Currency,
 		)

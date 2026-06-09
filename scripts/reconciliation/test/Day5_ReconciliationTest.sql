@@ -73,7 +73,7 @@ WHERE id IN (
 );
 
 -- Shared accounts for payment and transaction rows.
-INSERT INTO accounts (id, user_id, balance, currency, created_at, updated_at)
+INSERT INTO accounts (id, account_name, balance, currency, created_at, updated_at)
 VALUES
     ('20000000-0000-0000-0000-000000000001', 'recon-day5-sender-a', 1000000, 'INR', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day'),
     ('20000000-0000-0000-0000-000000000002', 'recon-day5-receiver-a', 1000000, 'INR', NOW() - INTERVAL '1 day', NOW() - INTERVAL '1 day'),

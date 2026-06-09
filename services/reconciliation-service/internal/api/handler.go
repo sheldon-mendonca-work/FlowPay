@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"flowpay/pkg/observability/logger"
+	"flowpay/pkg/observability/metrics"
 	"flowpay/reconciliation-service/internal/constants"
 	"flowpay/reconciliation-service/internal/dto"
 	flowpayReconciliationErrors "flowpay/reconciliation-service/internal/errors"
@@ -72,11 +73,21 @@ func buildPaymentReconciliationResponse(anomalies []dto.AnomalyResponseDTO, chec
 		status = "FAIL"
 	}
 
+	checksSummary := make(map[string]int8)
+	severitySummary := make(map[string]int8)
+
+	for _, anamoly := range anomalies {
+		severitySummary[anamoly.Severity]++
+		checksSummary[anamoly.CheckName]++
+	}
+
 	return dto.ReconciliationResponseDTO{
 		CheckName:       checkName,
 		Status:          status,
 		AnomalyCount:    len(anomalies),
 		ExecutionTimeMs: executionTimeMs,
+		SeveritySummary: severitySummary,
+		ChecksSummary:   checksSummary,
 		Anomalies:       anomalies,
 	}
 }
@@ -86,6 +97,7 @@ func (h *Handler) HandleReconciliationChecks(w http.ResponseWriter,
 	checkName string,
 	run func(context.Context, string) ([]dto.AnomalyResponseDTO, error),
 ) {
+	metrics.ReconciliationRunsTotal.Inc()
 	start := time.Now()
 	if r.Method != http.MethodGet {
 		err := flowpayReconciliationErrors.ErrMethodNotAllowed
@@ -107,6 +119,7 @@ func (h *Handler) HandleReconciliationChecks(w http.ResponseWriter,
 
 	anomalies, err := run(ctx, checkName)
 	if err != nil {
+		duration := time.Since(start).Milliseconds()
 		message, status := reconciliationErrorResponse(err)
 		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, ""+checkName+"_reconciliation_failed", logger.Fields{
 			"http_method":      r.Method,
@@ -116,7 +129,7 @@ func (h *Handler) HandleReconciliationChecks(w http.ResponseWriter,
 			"outcome":          reconciliationOutcome(status, err),
 			"error_type":       reconciliationErrorType(err),
 			"error":            err.Error(),
-			"duration_ms":      time.Since(start).Milliseconds(),
+			"duration_ms":      duration,
 		})
 		WriteJSONError(w, message, status)
 		return
@@ -124,6 +137,14 @@ func (h *Handler) HandleReconciliationChecks(w http.ResponseWriter,
 
 	response := buildPaymentReconciliationResponse(anomalies, checkName, time.Since(start).Milliseconds())
 
+	duration := time.Since(start).Milliseconds()
+
+	metrics.ReconciliationDurationMs.Observe(float64(duration))
+	metrics.ReconciliationAnomaliesTotal.Add(float64(len(anomalies)))
+
+	if len(anomalies) > 0 {
+		metrics.ReconciliationFailuresTotal.Inc()
+	}
 	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, ""+checkName+"_reconciliation_completed", logger.Fields{
 		"http_method":      r.Method,
 		"http_path":        r.URL.Path,
@@ -190,7 +211,6 @@ func (h *Handler) HandleIndividualPaymentCheck(w http.ResponseWriter, r *http.Re
 
 	case paymentCheckType == constants.PaymentsMissingCompletedIdempotencyCheckName:
 		{
-			// !!!Pending
 			h.HandleReconciliationChecks(w, r, constants.PaymentsMissingCompletedIdempotencyCheckName, h.reconciliationService.GetPaymentsMissingCompletedIdempotency)
 			return
 		}
