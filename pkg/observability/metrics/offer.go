@@ -9,23 +9,57 @@ var OfferDurationMs = prometheus.NewHistogram(
 	},
 )
 
-var OfferRequestsTotal = prometheus.NewCounterVec(
+var OfferCreationRequestsTotal = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "offer_requests_total",
-		Help: "Total number of offer requests by outcome.",
+		Name: "offer_creation_requests_total",
+		Help: "Total number of offer creation requests by outcome.",
 	},
 	[]string{"service", "outcome"},
 )
 
-var OfferRequestDuration = prometheus.NewHistogramVec(
+var OfferCreationRequestDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Name:    "offer_request_duration_seconds",
-		Help:    "Offer request processing latency in seconds.",
+		Name:    "offer_creation_request_duration_seconds",
+		Help:    "Offer creation request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var OfferRedemptionRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "offer_redemption_requests_total",
+		Help: "Total number of offer redemption requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var OfferRedemptionRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "offer_redemption_request_duration_seconds",
+		Help:    "Offer redemption request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var OfferReserveRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "offer_reserve_requests_total",
+		Help: "Total number of offer reserve requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var OfferReserveRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "offer_reserve_request_duration_seconds",
+		Help:    "Offer reserve request processing latency in seconds.",
 		Buckets: prometheus.DefBuckets,
 	},
 	[]string{"service", "outcome"},
 )
 
 func InitOfferMetrics() {
-	prometheus.MustRegister(OfferDurationMs, OfferRequestsTotal, OfferRequestDuration)
+	prometheus.MustRegister(OfferDurationMs, OfferCreationRequestsTotal, OfferCreationRequestDuration, OfferRedemptionRequestDuration, OfferRedemptionRequestsTotal, OfferReserveRequestsTotal, OfferReserveRequestDuration)
 }

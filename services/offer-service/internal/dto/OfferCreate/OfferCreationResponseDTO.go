@@ -1,4 +1,4 @@
-package dto
+package offerCreateDTO
 
 import "flowpay/offer-service/internal/types"
 

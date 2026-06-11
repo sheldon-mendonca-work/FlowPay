@@ -5,3 +5,9 @@ topics:
     partitions: 3
   - name: wallet.events
     partitions: 3
+  - name: offer.events
+    partitions: 3
+  - name: fraud.events
+    partitions: 3
+  - name: scheduler.events
+    partitions: 3

@@ -14,6 +14,7 @@ type OfferEntity struct {
 	MaxRedemptions        int32
 	MaxRedemptionsPerUser int32
 	RedeemedCount         int32
+	ReservedCount         int32
 	IdempotencyKey        string
 	Status                string
 	Version               int

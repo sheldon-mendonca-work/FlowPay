@@ -1,4 +1,4 @@
-package dto
+package offerCreateDTO
 
 import "time"
 

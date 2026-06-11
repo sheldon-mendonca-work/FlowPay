@@ -38,6 +38,7 @@ CREATE TABLE offers (
 
     max_redemptions INTEGER NOT NULL,
     redeemed_count INTEGER NOT NULL DEFAULT 0,
+    reserved_count INTEGER NOT NULL DEFAULT 0,
 
     max_redemptions_per_user INTEGER NOT NULL DEFAULT 1,
     idempotency_key VARCHAR(255),
@@ -109,7 +110,7 @@ CREATE TABLE offer_redemptions (
 
     offer_id UUID NOT NULL,
     account_id UUID NOT NULL,
-
+    reservation_id UUID NOT NULL,
     payment_id UUID,
     idempotency_key VARCHAR(255) NOT NULL UNIQUE,
 
@@ -148,6 +149,8 @@ CREATE TABLE offer_redemptions (
 
     CONSTRAINT fk_offer_id
         FOREIGN KEY (offer_id) REFERENCES offers(id),
+    CONSTRAINT fk_reservation_id
+        FOREIGN KEY (offer_reservations_id) REFERENCES offer_reservations(id),
 
     CONSTRAINT fk_account_id
         FOREIGN KEY (account_id) REFERENCES accounts(id)
@@ -209,13 +212,76 @@ CREATE TABLE offer_idempotency_keys (
     updated_at TIMESTAMP NOT NULL
 );
 
+CREATE TABLE offer_reservation_idempotency_keys (
+    idempotency_key VARCHAR(255) PRIMARY KEY,
+
+    offer_id UUID,
+    reservation_id UUID,
+    payment_id UUID NOT NULL,
+    request_hash VARCHAR(255) NOT NULL,
+
+    status VARCHAR(20) NOT NULL CHECK (
+        status IN (
+            'IN_PROGRESS',
+            'COMPLETED',
+            'FAILED'
+        )
+    ),
+
+    response_body JSONB,
+    error_code TEXT,
+    error_message TEXT,
+    
+    owner_token VARCHAR(255),
+
+    locked_until TIMESTAMP NOT NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT fk_offer_reservation_offer
+        FOREIGN KEY (offer_id)
+        REFERENCES offers(id)
+);
+
+CREATE TABLE offer_redemption_idempotency_keys (
+    idempotency_key VARCHAR(255) PRIMARY KEY,
+
+    offer_id UUID,
+    payment_id UUID NOT NULL,
+    reservation_id UUID NOT NULL,
+    redemption_id UUID,
+    request_hash VARCHAR(255) NOT NULL,
+    
+    status VARCHAR(20) NOT NULL CHECK (
+        status IN (
+            'IN_PROGRESS',
+            'COMPLETED',
+            'FAILED'
+        )
+    ),
+
+    response_body JSONB,
+    error_code TEXT,
+    error_message TEXT,
+    
+    owner_token VARCHAR(255),
+
+    locked_until TIMESTAMP NOT NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT fk_offer_redemption_offer
+        FOREIGN KEY (offer_id)
+        REFERENCES offers(id)
+);
+
 CREATE TABLE offer_reservations (
     id UUID PRIMARY KEY,
 
     offer_id UUID NOT NULL,
     account_id UUID NOT NULL,
-
     payment_id UUID,
+    idempotency_key VARCHAR(255) NOT NULL UNIQUE,
 
     status VARCHAR(20) NOT NULL CHECK (
         status IN (
@@ -234,6 +300,10 @@ CREATE TABLE offer_reservations (
     CONSTRAINT fk_offer_reservation_offer
         FOREIGN KEY (offer_id)
         REFERENCES offers(id),
+
+    CONSTRAINT fk_reservation_idempotency
+        FOREIGN KEY (idempotency_key)
+        REFERENCES offer_redemption_idempotency_keys(id),
 
     CONSTRAINT fk_offer_reservation_account
         FOREIGN KEY (account_id)

@@ -4,7 +4,8 @@ use (
 	./pkg
 	./services/offer-service
 	./services/payment-executor
+	./workers/offer-expiry-worker
 	./services/payment-service
 	./services/reconciliation-service
-	./services/transaction-processor
+	./workers/transaction-processor
 )

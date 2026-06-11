@@ -32,6 +32,8 @@ func main() {
 	companyRepository := repository.NewCompanyRepository(db)
 	offerEventsRepository := repository.NewOfferEventsRepository(db)
 	offerIdempotencyRepository := repository.NewOfferIdempotencyRepository(db)
+	offerReservationIdempotencyRepository := repository.NewOfferReservationIdempotencyRepository(db)
+	offerRedemptionIdempotencyRepository := repository.NewOfferRedemptionIdempotencyRepository(db)
 	offerRedemptionRepository := repository.NewOfferRedemptionsRepository(db)
 	offerReservationRepository := repository.NewOfferReservationsRepository(db)
 	usersRepository := repository.NewUserRepository(db)
@@ -41,7 +43,9 @@ func main() {
 		offerIdempotencyRepository,
 		offerRedemptionRepository,
 		offerReservationRepository,
-		usersRepository)
+		usersRepository,
+		offerReservationIdempotencyRepository,
+		offerRedemptionIdempotencyRepository)
 
 	handler := api.NewHandler(offerService)
 
@@ -49,8 +53,8 @@ func main() {
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/offers", handler.HandleOfferTransactions)
-	mux.HandleFunc("/offers/{offerID}", handler.HandleOfferIdTransactions)
-	mux.HandleFunc("/offers/code/{offerCode}", handler.HandleOfferCodeTransactions)
+	mux.HandleFunc("/offers/{offer_id}/reserve", handler.HandleOfferIdReserveTransactions)
+	mux.HandleFunc("/offers/{offer_id}/redeem", handler.HandleOfferIdRedeemTransactions)
 	log.Println("Offer service running on :8005")
 	log.Fatal(http.ListenAndServe(":8005", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

@@ -49,6 +49,11 @@ func ToOfferErrorType(err error) string {
 		errors.Is(err, ErrInvalidRequestBody),
 		errors.Is(err, ErrOfferRequestTimedOut),
 		errors.Is(err, ErrOfferRequestCanceled),
+		errors.Is(err, ErrAccountIdRequired),
+		errors.Is(err, ErrOfferIdRequired),
+		errors.Is(err, ErrPaymentIdRequired),
+		errors.Is(err, ErrReservationIdRequired),
+		errors.Is(err, ErrRedemptionIdRequired),
 		errors.Is(err, ErrCreateOfferFailed):
 		return ErrorTypeValidationError
 	default:
