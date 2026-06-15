@@ -170,6 +170,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 			"receiver_id":     req.ReceiverID,
 			"amount":          req.Amount,
 			"currency":        req.Currency,
+			"offer_id":        req.OfferId,
 			"error":           validationError.Error(),
 		})
 		WriteJSONError(w, validationError.Error(), http.StatusBadRequest)
@@ -197,6 +198,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 			"receiver_id":      req.ReceiverID,
 			"amount":           req.Amount,
 			"currency":         req.Currency,
+			"offer_id":         req.OfferId,
 			"error":            err.Error(),
 			"duration_ms":      time.Since(start).Milliseconds(),
 		})
@@ -218,6 +220,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 		"receiver_id":      req.ReceiverID,
 		"amount":           req.Amount,
 		"currency":         req.Currency,
+		"offer_id":         req.OfferId,
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 

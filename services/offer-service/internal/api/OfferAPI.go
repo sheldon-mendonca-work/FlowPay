@@ -188,6 +188,22 @@ func validateCreateOfferRequest(req offerCreateDTO.OfferCreationRequestDTO, idem
 }
 
 func validateOfferRedeemRequest(req offerRedeemDTO.OfferRedemptionRequestDTO, idempotencyKey string, offerID string) error {
+	if strings.TrimSpace(idempotencyKey) == "" {
+		return flowpayOfferErrors.ErrIdempotencyRequired
+	}
+
+	if strings.TrimSpace(req.AccountID) == "" {
+		return flowpayOfferErrors.ErrAccountIdRequired
+	}
+
+	if strings.TrimSpace(req.PaymentID) == "" {
+		return flowpayOfferErrors.ErrIdempotencyRequired
+	}
+
+	if strings.TrimSpace(req.ReservationID) == "" {
+		return flowpayOfferErrors.ErrAccountIdRequired
+	}
+
 	return nil
 }
 
@@ -444,7 +460,7 @@ func (h *Handler) HandleOfferIdRedeemTransactions(w http.ResponseWriter, r *http
 		return
 	}
 	statusCode := http.StatusMethodNotAllowed
-	logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "offer_request_rejected", logger.Fields{
+	logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "offer_redeem_request_rejected", logger.Fields{
 		"http_method": r.Method,
 		"http_path":   r.URL.Path,
 		"http_status": statusCode,

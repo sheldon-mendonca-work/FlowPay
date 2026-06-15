@@ -2,11 +2,11 @@ package main
 
 import (
 	"context"
+	"flowpay/outbox-publisher/internal/db"
+	"flowpay/outbox-publisher/internal/kafka"
+	"flowpay/outbox-publisher/internal/repo"
+	"flowpay/outbox-publisher/internal/worker"
 	"flowpay/pkg/utils"
-	"flowpay/transaction-processor/internal/db"
-	"flowpay/transaction-processor/internal/kafka"
-	"flowpay/transaction-processor/internal/repo"
-	"flowpay/transaction-processor/internal/worker"
 	"log"
 	"os/signal"
 	"syscall"

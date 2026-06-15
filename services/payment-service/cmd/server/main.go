@@ -25,7 +25,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	metrics.InitMetrics()
-	// kafkaWriter := infra.InitKafka()
+
 	db := infra.InitDB()
 	paymentRepository := repository.NewPaymentRepository(db)
 	transactionRepository := repository.NewTransactionRepository(db)
@@ -36,7 +36,6 @@ func main() {
 	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository)
 	handler := api.NewHandler(paymentService)
 
-	// defer kafkaWriter.Close()
 	defer db.Close()
 
 	mux := http.NewServeMux()

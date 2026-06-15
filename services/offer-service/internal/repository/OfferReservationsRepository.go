@@ -86,3 +86,55 @@ func (r *OfferReservationsRepository) CountActiveReservationsForAccount(
 
 	return count, err
 }
+
+func (r *OfferReservationsRepository) GetReservationByID(ctx context.Context, tx *sql.Tx, reservationID string) (domain.OfferReservationEntity, error) {
+	query := `
+		SELECT
+			id,
+			offer_id,
+			account_id,
+			payment_id,
+			idempotency_key,
+			status,
+			expires_at
+		FROM offer_reservations
+		WHERE id=$1
+		FOR UPDATE;
+	`
+	var reservation domain.OfferReservationEntity
+	err := tx.QueryRowContext(ctx, query, reservationID).Scan(
+		&reservation.ID,
+		&reservation.OfferID,
+		&reservation.AccountID,
+		&reservation.PaymentID,
+		&reservation.IdempotencyKey,
+		&reservation.Status,
+		&reservation.ExpiresAt,
+	)
+
+	return reservation, err
+}
+
+func (r *OfferReservationsRepository) MarkReservationAsRedeemed(ctx context.Context, tx *sql.Tx, reservationID string) error {
+	query := `
+		UPDATE offer_reservations
+		SET
+			status = 'REDEEMED'
+			updated_at = NOW()
+		WHERE id = $1
+		  AND status = 'RESERVED';
+	`
+
+	res, err := tx.ExecContext(ctx, query, reservationID)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return fmt.Errorf("offer reservation mark redeemed failed: expected 1 row affected, got %d", rowsAffected)
+	}
+	return nil
+}

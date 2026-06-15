@@ -18,7 +18,7 @@ AND locked_until < NOW()
 ORDER BY locked_until ASC;
 
 -- 2. Permanently FAILED events after retry exhaustion.
--- MaxKafkaRetryCount is currently 5 in transaction-processor constants.
+-- MaxKafkaRetryCount is currently 5 in outbox-publisher constants.
 SELECT
     id,
     aggregate_type,

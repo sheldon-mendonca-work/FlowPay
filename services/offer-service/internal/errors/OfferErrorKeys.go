@@ -7,6 +7,7 @@ import (
 
 const (
 	ErrorTypeNone                  = "NONE"
+	ErrorTypeKafkaMessageDecoding  = "KAFKA_MESSAGE_DECODE_FAILED"
 	ErrorTypeDBFailure             = "DB_FAILURE"
 	ErrorTypeValidationError       = "VALIDATION_ERROR"
 	ErrorTypeInsufficientBalance   = "INSUFFICIENT_BALANCE"

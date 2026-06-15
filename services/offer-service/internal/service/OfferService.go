@@ -27,6 +27,11 @@ type OfferRepository interface {
 		tx *sql.Tx,
 		offerID string,
 	) error
+	ConvertReservedToRedeemed(
+		ctx context.Context,
+		tx *sql.Tx,
+		offerID string,
+	) error
 }
 type CompanyRepository interface {
 }
@@ -38,7 +43,7 @@ type OfferEventsRepository interface {
 	) error
 }
 type OfferRedemptionIdempotencyRepository interface {
-	ClaimOrGet(ctx context.Context, idempotency domain.OfferIdempotencyKey) (domain.OfferIdempotencyKey, bool, error)
+	ClaimOrGet(ctx context.Context, idempotency domain.OfferRedemptionIdempotencyKeyEntity) (domain.OfferRedemptionIdempotencyKeyEntity, bool, error)
 	MarkFailed(
 		tx *sql.Tx,
 		ctx context.Context,
@@ -85,6 +90,7 @@ type OfferIdempotencyRepository interface {
 	MarkCompleted(tx *sql.Tx, ctx context.Context, idempotencyKey string, responseBody string, offerID string, ownerToken string) error
 }
 type OfferRedemptionsRepository interface {
+	CreateRedemption(ctx context.Context, tx *sql.Tx, redemption domain.OfferRedemptionEntity) error
 }
 type OfferReservationsRepository interface {
 	CreateReservation(ctx context.Context, tx *sql.Tx, reservation domain.OfferReservationEntity) error
@@ -94,6 +100,8 @@ type OfferReservationsRepository interface {
 		offerID string,
 		accountID string,
 	) (int, error)
+	GetReservationByID(ctx context.Context, tx *sql.Tx, reservationID string) (domain.OfferReservationEntity, error)
+	MarkReservationAsRedeemed(ctx context.Context, tx *sql.Tx, reservationID string) error
 }
 type UserRepository interface {
 	GetUsersByUserAndCompanyId(ctx context.Context, tx *sql.Tx, companyId string, userId string) (domain.UsersEntity, error)
@@ -260,8 +268,8 @@ func shouldPersistFailedIdempotency(err error) bool {
 		errors.Is(err, flowpayOfferErrors.ErrOfferTypeInvalid),
 		errors.Is(err, flowpayOfferErrors.ErrCompanyIdRequired),
 		errors.Is(err, flowpayOfferErrors.ErrCompanyIdIsInvalid),
-		errors.Is(err, flowpayOfferErrors.ErrUserNotInCompany),
 		errors.Is(err, flowpayOfferErrors.ErrUserNotFound),
+		errors.Is(err, flowpayOfferErrors.ErrUserNotInCompany),
 		errors.Is(err, flowpayOfferErrors.ErrOfferAmountOrPercentageRequired),
 		errors.Is(err, flowpayOfferErrors.ErrOfferAmountInvalid),
 		errors.Is(err, flowpayOfferErrors.ErrOfferPercentageInvalid),
@@ -270,7 +278,31 @@ func shouldPersistFailedIdempotency(err error) bool {
 		errors.Is(err, flowpayOfferErrors.ErrMaxRedemptionsInvalid),
 		errors.Is(err, flowpayOfferErrors.ErrStartTimeRequired),
 		errors.Is(err, flowpayOfferErrors.ErrEndTimeRequired),
-		errors.Is(err, flowpayOfferErrors.ErrStartTimeAfterEndTime):
+		errors.Is(err, flowpayOfferErrors.ErrStartTimeAfterEndTime),
+		errors.Is(err, flowpayOfferErrors.ErrAccountIdRequired),
+		errors.Is(err, flowpayOfferErrors.ErrPaymentIdRequired),
+		errors.Is(err, flowpayOfferErrors.ErrReservationIdRequired),
+		errors.Is(err, flowpayOfferErrors.ErrRedemptionIdRequired),
+		errors.Is(err, flowpayOfferErrors.ErrOfferIdRequired),
+		errors.Is(err, flowpayOfferErrors.ErrOfferNotActive),
+		errors.Is(err, flowpayOfferErrors.ErrOfferExpired),
+		errors.Is(err, flowpayOfferErrors.ErrOfferNotStarted),
+		errors.Is(err, flowpayOfferErrors.ErrOfferRedemptionLimitReached),
+		errors.Is(err, flowpayOfferErrors.ErrOfferReservationLimitReached),
+		errors.Is(err, flowpayOfferErrors.ErrPaymentAlreadyReserved),
+		errors.Is(err, flowpayOfferErrors.ErrInvalidRequestBody),
+		errors.Is(err, flowpayOfferErrors.ErrCreateOfferFailed),
+		errors.Is(err, flowpayOfferErrors.ErrReserveOfferFailed),
+		errors.Is(err, flowpayOfferErrors.ErrRedeemOfferFailed),
+		errors.Is(err, flowpayOfferErrors.ErrMinimumPaymentAmountNegative),
+		errors.Is(err, flowpayOfferErrors.ErrMaximumPaymentAmountNegative),
+		errors.Is(err, flowpayOfferErrors.ErrMinimumPaymentAmountInvalid),
+		errors.Is(err, flowpayOfferErrors.ErrReservationAccountMismatch),
+		errors.Is(err, flowpayOfferErrors.ErrReservationPaymentMismatch),
+		errors.Is(err, flowpayOfferErrors.ErrReservationOfferMismatch),
+		errors.Is(err, flowpayOfferErrors.ErrReservationExpired),
+		errors.Is(err, flowpayOfferErrors.ErrReservationReservationIDMismatch),
+		errors.Is(err, flowpayOfferErrors.ErrReservationNotReserved):
 		return true
 	default:
 		return false
@@ -617,7 +649,7 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 
 	if !idempotencyClaimed {
 		if existingIdempotency.RequestHash != payloadHash {
-			logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_idempotency_mismatch", logger.Fields{
+			logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_reserve_idempotency_mismatch", logger.Fields{
 				"idempotency_key": idempotencyKey,
 				"trace_id":        traceID,
 				"offer_id":        offerID,
@@ -631,17 +663,17 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 
 		if existingIdempotency.Status == "IN_PROGRESS" {
 			err := fmt.Errorf("%w: idempotency_key=%s", flowpayOfferErrors.ErrIdempotencyInProgress, idempotencyKey)
-			logOfferReserveStepFailure(ctx, req, idempotencyKey, offerID, "idempotency_in_progress", err)
+			logOfferReserveStepFailure(ctx, req, idempotencyKey, offerID, "offer_reservation_idempotency_in_progress", err)
 			return offerReserveDTO.OfferReservationResponseDTO{}, err
 		}
 
 		cachedResponse, err := cachedReserveIdempotencyResult(existingIdempotency)
 		if err != nil {
-			logOfferReserveStepFailure(ctx, req, idempotencyKey, offerID, "idempotency_cached_result", err)
+			logOfferReserveStepFailure(ctx, req, idempotencyKey, offerID, "offer_reservation_idempotency_cached_result", err)
 			return offerReserveDTO.OfferReservationResponseDTO{}, err
 		}
 
-		logger.LogEvent(ctx, "INFO", constants.ServiceName, "idempotency_hit", logger.Fields{
+		logger.LogEvent(ctx, "INFO", constants.ServiceName, "offer_reservation_idempotency_hit", logger.Fields{
 			"idempotency_key": idempotencyKey,
 			"trace_id":        traceID,
 			"status":          existingIdempotency.Status,
@@ -651,7 +683,7 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 			"error_code":      existingIdempotency.ErrorCode,
 			"error_type":      flowpayOfferErrors.ErrorTypeNone,
 		})
-		logger.LogPlain(ctx, constants.ServiceName, "served cached idempotency result for idempotency_key=%s status=%s", idempotencyKey, existingIdempotency.Status)
+		logger.LogPlain(ctx, constants.ServiceName, "served cached offer reservation idempotency result for idempotency_key=%s status=%s", idempotencyKey, existingIdempotency.Status)
 		return cachedResponse, nil
 	}
 
@@ -880,8 +912,311 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 	return response, nil
 }
 
-func (s *OfferService) RedeemOffer(ctx context.Context, req offerRedeemDTO.OfferRedemptionRequestDTO, idempotencyKey string, offerId string, requestID string, traceID string) (offerRedeemDTO.OfferRedemptionResponseDTO, error) {
-	return offerRedeemDTO.OfferRedemptionResponseDTO{}, nil
+func (s *OfferService) RedeemOffer(ctx context.Context, req offerRedeemDTO.OfferRedemptionRequestDTO, idempotencyKey string, offerID string, requestID string, traceID string) (offerRedeemDTO.OfferRedemptionResponseDTO, error) {
+	reservationID := req.ReservationID
+
+	requestForHash := struct {
+		OfferID       string `json:"offer_id"`
+		AccountID     string `json:"account_id"`
+		ReservationID string `json:"reservation_id"`
+	}{
+		OfferID:       offerID,
+		AccountID:     req.AccountID,
+		ReservationID: req.ReservationID,
+	}
+
+	reqAsBytes, err := json.Marshal(requestForHash)
+	if err != nil {
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, fmt.Errorf("failed to extract request json: %w", err)
+	}
+
+	payloadHash, err := utils.ComputeHash(reqAsBytes)
+	if err != nil {
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, fmt.Errorf("failed to compute hash: %w", err)
+	}
+
+	redemptionID, err := generateRandomId()
+	if err != nil {
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+
+	ownerToken, err := generateRandomId()
+	if err != nil {
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+
+	idempotencyPayload := domain.OfferRedemptionIdempotencyKeyEntity{
+		IdempotencyKey: idempotencyKey,
+		RequestHash:    payloadHash,
+		OfferID:        offerID,
+		RedemptionID:   redemptionID,
+		PaymentID:      req.PaymentID,
+		ReservationID:  req.ReservationID,
+		Status:         "IN_PROGRESS",
+		OwnerToken:     ownerToken,
+		LockedUntil:    leaseExpiryFromNow(),
+	}
+
+	existingIdempotency, idempotencyClaimed, err := s.offerRedemptionIdempotencyRepository.ClaimOrGet(ctx, idempotencyPayload)
+	if err != nil {
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+
+	if !idempotencyClaimed {
+		if existingIdempotency.RequestHash != payloadHash {
+			logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_redeem_idempotency_mismatch", logger.Fields{
+				"idempotency_key": idempotencyKey,
+				"trace_id":        traceID,
+				"offer_id":        offerID,
+				"payment_id":      req.PaymentID,
+				"reservation_id":  existingIdempotency.ReservationID,
+				"account_id":      req.AccountID,
+				"error_type":      flowpayOfferErrors.ErrorTypeIdempotencyMismatch,
+			})
+			return offerRedeemDTO.OfferRedemptionResponseDTO{}, fmt.Errorf("%w: idempotency_key=%s", flowpayOfferErrors.ErrIdempotencyMismatch, idempotencyKey)
+		}
+
+		if existingIdempotency.Status == "IN_PROGRESS" {
+			err := fmt.Errorf("%w: idempotency_key=%s", flowpayOfferErrors.ErrIdempotencyInProgress, idempotencyKey)
+			logOfferRedeemStepFailure(ctx, req, idempotencyKey, offerID, "offer_redemption_idempotency_in_progress", err)
+			return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+		}
+
+		cachedResponse, err := cachedRedeemIdempotencyResult(existingIdempotency)
+		if err != nil {
+			logOfferRedeemStepFailure(ctx, req, idempotencyKey, offerID, "offer_redemption_idempotency_in_progress", err)
+			return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+		}
+
+		logger.LogEvent(ctx, "INFO", constants.ServiceName, "offer_redemption_idempotency_hit", logger.Fields{
+			"idempotency_key": idempotencyKey,
+			"trace_id":        traceID,
+			"status":          existingIdempotency.Status,
+			"offer_id":        cachedResponse.OfferID,
+			"payment_id":      req.PaymentID,
+			"reservation_id":  req.ReservationID,
+			"error_code":      existingIdempotency.ErrorCode,
+			"error_type":      flowpayOfferErrors.ErrorTypeNone,
+		})
+		logger.LogPlain(ctx, constants.ServiceName, "served cached offer redemption idempotency result for idempotency_key=%s status=%s", idempotencyKey, existingIdempotency.Status)
+		return cachedResponse, nil
+	}
+
+	if idempotencyClaimed {
+		if existingIdempotency.ReservationID != "" {
+			reservationID = existingIdempotency.ReservationID
+		}
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+
+	rollbackDueToError := false
+	txClosed := false
+
+	logger.LogPlain(ctx, constants.ServiceName, "started offer redemption transaction reservation_id = %s offer_id=%s payment_id=%s", reservationID, offerID, req.PaymentID)
+
+	defer func() {
+		if txClosed {
+			return
+		}
+
+		rollbackErr := tx.Rollback()
+		switch {
+		case rollbackErr == nil && rollbackDueToError:
+			logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_redeem_tx_rolled_back", logger.Fields{
+				"idempotency_key": idempotencyKey,
+				"trace_id":        traceID,
+				"offer_id":        offerID,
+				"payment_id":      req.PaymentID,
+				"reservation_id":  reservationID,
+				"error_type":      flowpayOfferErrors.ErrorTypeNone,
+			})
+		case rollbackErr != nil && rollbackErr != sql.ErrTxDone:
+			logger.LogEvent(ctx, "ERROR", constants.ServiceName, "offer_redeem_tx_rollback_failed", logger.Fields{
+				"idempotency_key": idempotencyKey,
+				"trace_id":        traceID,
+				"offer_id":        offerID,
+				"payment_id":      req.PaymentID,
+				"reservation_id":  reservationID,
+				"error_type":      flowpayOfferErrors.ErrorTypeDBFailure,
+				"error":           rollbackErr.Error(),
+			})
+		}
+	}()
+
+	rollbackTechnicalFailure := func(step string, err error) (offerRedeemDTO.OfferRedemptionResponseDTO, error) {
+		rollbackDueToError = true
+		logOfferRedeemStepFailure(ctx, req, idempotencyKey, offerID, step, err)
+
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
+			logger.LogEvent(ctx, "ERROR", constants.ServiceName, "offer_redeem_tx_rollback_failed", logger.Fields{
+				"idempotency_key": idempotencyKey,
+				"trace_id":        traceID,
+				"offer_id":        offerID,
+				"payment_id":      req.PaymentID,
+				"reservation_id":  reservationID,
+				"error_type":      flowpayOfferErrors.ErrorTypeDBFailure,
+				"error":           rollbackErr.Error(),
+			})
+		} else {
+			logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_redeem_tx_rolled_back", logger.Fields{
+				"idempotency_key": idempotencyKey,
+				"trace_id":        traceID,
+				"offer_id":        offerID,
+				"payment_id":      req.PaymentID,
+				"reservation_id":  reservationID,
+				"error_type":      flowpayOfferErrors.ToOfferErrorType(err),
+			})
+		}
+		txClosed = true
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+
+	markFailedAndCommit := func(step string, err error) (offerRedeemDTO.OfferRedemptionResponseDTO, error) {
+		rollbackDueToError = true
+		logOfferRedeemStepFailure(ctx, req, idempotencyKey, offerID, step, err)
+		if markErr := s.offerRedemptionIdempotencyRepository.MarkFailed(tx, ctx, idempotencyKey, flowpayOfferErrors.ToOfferErrorType(err), err.Error(), ownerToken); markErr != nil {
+			return rollbackTechnicalFailure(step+"_mark_failed", markErr)
+		}
+		if commitErr := tx.Commit(); commitErr != nil {
+			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
+		}
+		txClosed = true
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+
+	// validate
+	reservation, err := s.offerReservationRepository.GetReservationByID(ctx, tx, reservationID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return markFailedAndCommit(
+				"offer_lookup",
+				flowpayOfferErrors.ErrReservationNotFound,
+			)
+		}
+
+		return rollbackTechnicalFailure("offer_lookup", err)
+	}
+
+	if reservation.AccountID != req.AccountID {
+		return markFailedAndCommit(
+			"account_validation",
+			flowpayOfferErrors.ErrReservationAccountMismatch,
+		)
+	}
+
+	if reservation.PaymentID != req.PaymentID {
+		return markFailedAndCommit(
+			"account_validation",
+			flowpayOfferErrors.ErrReservationPaymentMismatch,
+		)
+	}
+
+	if reservation.OfferID != offerID {
+		return markFailedAndCommit(
+			"account_validation",
+			flowpayOfferErrors.ErrReservationOfferMismatch,
+		)
+	}
+
+	if reservation.ExpiresAt.Before(time.Now().UTC()) {
+		return markFailedAndCommit(
+			"reservation_expired",
+			flowpayOfferErrors.ErrReservationExpired,
+		)
+	}
+
+	if reservation.Status != "RESERVED" {
+		return markFailedAndCommit(
+			"account_validation",
+			flowpayOfferErrors.ErrReservationNotReserved,
+		)
+	}
+
+	newOfferRedeemItem := domain.OfferRedemptionEntity{
+		ID:             redemptionID,
+		OfferID:        reservation.OfferID,
+		AccountID:      reservation.AccountID,
+		PaymentID:      reservation.PaymentID,
+		ReservationID:  reservation.ID,
+		IdempotencyKey: idempotencyKey,
+		Status:         "SUCCESS",
+	}
+
+	// insert offer redeem item
+	err = s.offerRedemptionRepository.CreateRedemption(ctx, tx, newOfferRedeemItem)
+	if err != nil {
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("offer_redemption_creation", err)
+		}
+
+		return rollbackTechnicalFailure("offer_redemption_creation", err)
+	}
+
+	// update offer reservation
+	err = s.offerReservationRepository.MarkReservationAsRedeemed(ctx, tx, newOfferRedeemItem.ReservationID)
+	if err != nil {
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("offer_reservation_reserved_to_redeemed", err)
+		}
+
+		return rollbackTechnicalFailure("offer_reservation_reserved_to_redeemed", err)
+	}
+
+	// update offer
+	err = s.offerRepository.ConvertReservedToRedeemed(ctx, tx, reservation.OfferID)
+	if err != nil {
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("offer_reserved_to_redeem_counter", err)
+		}
+
+		return rollbackTechnicalFailure("offer_reserved_to_redeem_counter", err)
+	}
+
+	// update offer redeem idempotency
+	response := offerRedeemDTO.OfferRedemptionResponseDTO{
+		RedemptionID:   redemptionID,
+		PaymentID:      req.PaymentID,
+		OfferID:        offerID,
+		Status:         newOfferRedeemItem.Status,
+		RedemptionTime: time.Now(),
+	}
+
+	responseBody, err := json.Marshal(response)
+	if err != nil {
+		return rollbackTechnicalFailure("idempotency_response_encode", fmt.Errorf("encode idempotency response: %w", err))
+	}
+
+	err = s.offerRedemptionIdempotencyRepository.MarkCompleted(tx, ctx, idempotencyKey, string(responseBody), redemptionID, ownerToken)
+	if err != nil {
+		return rollbackTechnicalFailure("offer_redemption_idempotency_completed", err)
+	}
+
+	// Commit all transactions
+	if err := tx.Commit(); err != nil {
+		rollbackDueToError = true
+		logOfferRedeemStepFailure(ctx, req, idempotencyKey, offerID, "tx_commit", err)
+		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
+	}
+	txClosed = true
+
+	logger.LogEvent(ctx, "INFO", constants.ServiceName, "offer_redeem_tx_committed", logger.Fields{
+		"idempotency_key": idempotencyKey,
+		"trace_id":        traceID,
+		"redemption_id":   newOfferRedeemItem.ID,
+		"reservation_id":  newOfferRedeemItem.ReservationID,
+		"payment_id":      newOfferRedeemItem.PaymentID,
+		"offer_id":        newOfferRedeemItem.OfferID,
+		"account_id":      newOfferRedeemItem.AccountID,
+		"status":          newOfferRedeemItem.Status,
+		"error_type":      flowpayOfferErrors.ErrorTypeNone,
+	})
+	logger.LogPlain(ctx, constants.ServiceName, "committed offer reservation transaction redemption_id=%s, reservation_id=%s, offer_id=%s", redemptionID, reservationID, offerID)
+
+	return response, nil
 }
 
 func generateRandomId() (string, error) {

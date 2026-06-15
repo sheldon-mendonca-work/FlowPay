@@ -110,7 +110,7 @@ CREATE TABLE offer_redemptions (
 
     offer_id UUID NOT NULL,
     account_id UUID NOT NULL,
-    reservation_id UUID NOT NULL,
+    reservation_id UUID NOT NULL UNIQUE,
     payment_id UUID,
     idempotency_key VARCHAR(255) NOT NULL UNIQUE,
 
@@ -321,3 +321,26 @@ ON offer_reservations (payment_id);
 
 CREATE INDEX idx_offer_reservations_expires_at
 ON offer_reservations (expires_at);
+
+
+-- Add offers to payments table
+ALTER TABLE payments
+ADD COLUMN offer_id UUID,
+ADD COLUMN reservation_id UUID,
+ADD COLUMN redemption_id UUID,
+ADD COLUMN offer_benefit_amount BIGINT,
+ADD COLUMN offer_type TEXT CHECK (
+        offer_type IN (
+            'DISCOUNT',
+            'CASHBACK'
+        )),
+ADD COLUMN offer_code TEXT CHECK (status IN ('NONE', 'RESERVED', 'REDEEMED', 'EXPIRED'));
+
+CREATE INDEX idx_payments_offer_id
+ON payments(offer_id);
+
+CREATE INDEX idx_payments_reservation_id
+ON payments(reservation_id);
+
+CREATE INDEX idx_payments_redemption_id
+ON payments(redemption_id);

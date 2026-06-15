@@ -13,5 +13,6 @@ type PaymentInitiatedEvent struct {
 	RetryCount     int8
 	Amount         int64
 	Currency       string
+	OfferID        string
 	CreatedAt      time.Time
 }

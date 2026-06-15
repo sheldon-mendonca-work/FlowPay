@@ -7,5 +7,5 @@ use (
 	./workers/offer-expiry-worker
 	./services/payment-service
 	./services/reconciliation-service
-	./workers/transaction-processor
+	./workers/outbox-publisher
 )

@@ -19,10 +19,10 @@ func NewOfferRedemptionIdempotencyRepository(db *sql.DB) *OfferRedemptionIdempot
 	}
 }
 
-func (r *OfferRedemptionIdempotencyRepository) ClaimOrGet(ctx context.Context, idempotency domain.OfferIdempotencyKey) (domain.OfferIdempotencyKey, bool, error) {
+func (r *OfferRedemptionIdempotencyRepository) ClaimOrGet(ctx context.Context, idempotency domain.OfferRedemptionIdempotencyKeyEntity) (domain.OfferRedemptionIdempotencyKeyEntity, bool, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return domain.OfferIdempotencyKey{}, false, err
+		return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 	}
 
 	committed := false
@@ -38,23 +38,23 @@ func (r *OfferRedemptionIdempotencyRepository) ClaimOrGet(ctx context.Context, i
 	case errors.Is(err, sql.ErrNoRows):
 		{
 			if err := r.insertClaim(ctx, tx, idempotency); err != nil {
-				return domain.OfferIdempotencyKey{}, false, err
+				return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 			}
 
 			if err := tx.Commit(); err != nil {
-				return domain.OfferIdempotencyKey{}, false, err
+				return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 			}
 			committed = true
 			return idempotency, true, nil
 
 		}
 	default:
-		return domain.OfferIdempotencyKey{}, false, err
+		return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 	}
 
 	if existing.RequestHash != idempotency.RequestHash {
 		if err := tx.Commit(); err != nil {
-			return domain.OfferIdempotencyKey{}, false, err
+			return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 		}
 		committed = true
 		return existing, false, nil
@@ -62,7 +62,7 @@ func (r *OfferRedemptionIdempotencyRepository) ClaimOrGet(ctx context.Context, i
 
 	if existing.Status == "COMPLETED" || existing.Status == "FAILED" {
 		if err := tx.Commit(); err != nil {
-			return domain.OfferIdempotencyKey{}, false, err
+			return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 		}
 		committed = true
 		return existing, false, nil
@@ -71,27 +71,27 @@ func (r *OfferRedemptionIdempotencyRepository) ClaimOrGet(ctx context.Context, i
 	now := time.Now().UTC()
 	if existing.LockedUntil.After(now) {
 		if err := tx.Commit(); err != nil {
-			return domain.OfferIdempotencyKey{}, false, err
+			return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 		}
 		committed = true
 		return existing, false, nil
 	}
 
-	existingOfferId, err := r.takeOverClaim(ctx, tx, idempotency)
+	existingOfferRedemptionId, err := r.takeOverClaim(ctx, tx, idempotency)
 	if err != nil {
-		return domain.OfferIdempotencyKey{}, false, err
+		return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
-		return domain.OfferIdempotencyKey{}, false, err
+		return domain.OfferRedemptionIdempotencyKeyEntity{}, false, err
 	}
-	if existingOfferId != "" {
-		idempotency.OfferID = existingOfferId
+	if existingOfferRedemptionId != "" {
+		idempotency.OfferID = existingOfferRedemptionId
 	}
 	committed = true
 	return idempotency, true, nil
 }
 
-func (r *OfferRedemptionIdempotencyRepository) getByKeyForUpdate(ctx context.Context, tx *sql.Tx, idempotencyKey string) (domain.OfferIdempotencyKey, error) {
+func (r *OfferRedemptionIdempotencyRepository) getByKeyForUpdate(ctx context.Context, tx *sql.Tx, idempotencyKey string) (domain.OfferRedemptionIdempotencyKeyEntity, error) {
 	query := `
 		SELECT
 			idempotency_key,
@@ -105,12 +105,12 @@ func (r *OfferRedemptionIdempotencyRepository) getByKeyForUpdate(ctx context.Con
 			locked_until,
 			created_at,
 			updated_at
-		FROM offer_idempotency_keys
+		FROM offer_redemption_idempotency_keys
 		WHERE idempotency_key = $1
 		FOR UPDATE;
 	`
 
-	var p domain.OfferIdempotencyKey
+	var p domain.OfferRedemptionIdempotencyKeyEntity
 	err := tx.QueryRowContext(ctx, query, idempotencyKey).Scan(
 		&p.IdempotencyKey,
 		&p.RequestHash,
@@ -130,30 +130,33 @@ func (r *OfferRedemptionIdempotencyRepository) getByKeyForUpdate(ctx context.Con
 func (r *OfferRedemptionIdempotencyRepository) insertClaim(
 	ctx context.Context,
 	tx *sql.Tx,
-	idempotency domain.OfferIdempotencyKey,
+	idempotency domain.OfferRedemptionIdempotencyKeyEntity,
 ) error {
 	query := `
-		INSERT INTO offer_idempotency_keys (
+		INSERT INTO offer_redemption_idempotency_keys (
 			idempotency_key,
+			offer_id,
+			payment_id,
+			reservation_id,
 			request_hash,
 			status,
 			owner_token,
 			locked_until,
-			offer_id,
-			redemption_id,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW());
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW());
 	`
 	res, err := tx.ExecContext(
 		ctx,
 		query,
 		idempotency.IdempotencyKey,
+		idempotency.OfferID,
+		idempotency.PaymentID,
+		idempotency.ReservationID,
 		idempotency.RequestHash,
 		idempotency.Status,
 		idempotency.OwnerToken,
 		idempotency.LockedUntil,
-		idempotency.OfferID,
 	)
 	if err != nil {
 		return err
@@ -171,11 +174,11 @@ func (r *OfferRedemptionIdempotencyRepository) insertClaim(
 func (r *OfferRedemptionIdempotencyRepository) takeOverClaim(
 	ctx context.Context,
 	tx *sql.Tx,
-	idempotency domain.OfferIdempotencyKey,
+	idempotency domain.OfferRedemptionIdempotencyKeyEntity,
 ) (string, error) {
 	query := `
 		WITH updated AS (
-			UPDATE offer_idempotency_keys
+			UPDATE offer_redemption_idempotency_keys
 			SET
 				owner_token = $2,
 				locked_until = $3,
@@ -219,7 +222,7 @@ func (r *OfferRedemptionIdempotencyRepository) takeOverClaim(
 func (r *OfferRedemptionIdempotencyRepository) GetByKey(
 	ctx context.Context,
 	key string,
-) (domain.OfferIdempotencyKey, error) {
+) (domain.OfferRedemptionIdempotencyKeyEntity, error) {
 	query := `
 		SELECT
 			idempotency_key,
@@ -233,51 +236,12 @@ func (r *OfferRedemptionIdempotencyRepository) GetByKey(
 			locked_until,
 			created_at,
 			updated_at
-		FROM offer_idempotency_keys
+		FROM offer_redemption_idempotency_keys
 		WHERE idempotency_key = $1;
 	`
 
-	var p domain.OfferIdempotencyKey
+	var p domain.OfferRedemptionIdempotencyKeyEntity
 	err := r.db.QueryRowContext(ctx, query, key).Scan(
-		&p.IdempotencyKey,
-		&p.RequestHash,
-		&p.ResponseBody,
-		&p.Status,
-		&p.ErrorCode,
-		&p.ErrorMessage,
-		&p.OfferID,
-		&p.OwnerToken,
-		&p.LockedUntil,
-		&p.CreatedAt,
-		&p.UpdatedAt,
-	)
-
-	return p, err
-}
-
-func (r *OfferRedemptionIdempotencyRepository) GetByOfferId(
-	ctx context.Context,
-	offerId string,
-) (domain.OfferIdempotencyKey, error) {
-	query := `
-		SELECT
-			idempotency_key,
-			request_hash,
-			COALESCE(response_body::text, ''),
-			status,
-			COALESCE(error_code, ''),
-			COALESCE(error_message, ''),
-			COALESCE(offer_id::text, ''),
-			COALESCE(owner_token, ''),
-			locked_until,
-			created_at,
-			updated_at
-		FROM offer_idempotency_keys
-		WHERE offer_id = $1::uuid;
-	`
-
-	var p domain.OfferIdempotencyKey
-	err := r.db.QueryRowContext(ctx, query, offerId).Scan(
 		&p.IdempotencyKey,
 		&p.RequestHash,
 		&p.ResponseBody,
@@ -299,15 +263,15 @@ func (r *OfferRedemptionIdempotencyRepository) MarkCompleted(
 	ctx context.Context,
 	idempotencyKey string,
 	responseBody string,
-	OfferId string,
+	redemptionId string,
 	ownerToken string,
 ) error {
 	query := `
-		UPDATE offer_idempotency_keys
+		UPDATE offer_redemption_idempotency_keys
 		SET
 			response_body = $2::jsonb,
 			status = 'COMPLETED',
-			offer_id = $3::uuid,
+			redemption_id = $3::uuid,
 			error_code = NULL,
 			error_message = NULL,
 			owner_token = NULL,
@@ -317,7 +281,7 @@ func (r *OfferRedemptionIdempotencyRepository) MarkCompleted(
 		  AND owner_token = $4;
 	`
 
-	res, err := tx.ExecContext(ctx, query, idempotencyKey, responseBody, OfferId, ownerToken)
+	res, err := tx.ExecContext(ctx, query, idempotencyKey, responseBody, redemptionId, ownerToken)
 	if err != nil {
 		return err
 	}
@@ -340,7 +304,7 @@ func (r *OfferRedemptionIdempotencyRepository) MarkFailed(
 	ownerToken string,
 ) error {
 	query := `
-		UPDATE offer_idempotency_keys
+		UPDATE offer_redemption_idempotency_keys
 		SET
 			status = 'FAILED',
 			error_code = $2,

@@ -4,12 +4,15 @@ import (
 	"flowpay/offer-service/internal/api"
 	"flowpay/offer-service/internal/constants"
 	"flowpay/offer-service/internal/infra"
+	"flowpay/offer-service/internal/kafka"
 	"flowpay/offer-service/internal/repository"
 	"flowpay/offer-service/internal/service"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
+	"flowpay/pkg/utils"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -38,7 +41,9 @@ func main() {
 	offerReservationRepository := repository.NewOfferReservationsRepository(db)
 	usersRepository := repository.NewUserRepository(db)
 
-	offerService := service.NewOfferService(db, offerRepository, companyRepository,
+	offerService := service.NewOfferService(db,
+		offerRepository,
+		companyRepository,
 		offerEventsRepository,
 		offerIdempotencyRepository,
 		offerRedemptionRepository,
@@ -47,14 +52,23 @@ func main() {
 		offerReservationIdempotencyRepository,
 		offerRedemptionIdempotencyRepository)
 
-	handler := api.NewHandler(offerService)
+	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
+	kafkaTopic := utils.GetEnv("KAFKA_TOPIC", "payment.initiated")
+	kafkaGroupID := utils.GetEnv("KAFKA_GROUP_ID", "offer-service-group")
+
+	handler := api.NewKafkaOfferHandler(offerService)
+	consumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), kafkaTopic, kafkaGroupID, handler.HandlePaymentInitiated)
+
+	defer consumer.Close()
+
+	httpHandler := api.NewHandler(offerService)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
-	mux.HandleFunc("/offers", handler.HandleOfferTransactions)
-	mux.HandleFunc("/offers/{offer_id}/reserve", handler.HandleOfferIdReserveTransactions)
-	mux.HandleFunc("/offers/{offer_id}/redeem", handler.HandleOfferIdRedeemTransactions)
+	mux.HandleFunc("/offers", httpHandler.HandleOfferTransactions)
+	mux.HandleFunc("/offers/{offer_id}/reserve", httpHandler.HandleOfferIdReserveTransactions)
+	mux.HandleFunc("/offers/{offer_id}/redeem", httpHandler.HandleOfferIdRedeemTransactions)
 	log.Println("Offer service running on :8005")
 	log.Fatal(http.ListenAndServe(":8005", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

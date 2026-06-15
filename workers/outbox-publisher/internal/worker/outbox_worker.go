@@ -3,13 +3,13 @@ package worker
 import (
 	"context"
 	"database/sql"
+	outboxPublisherConstants "flowpay/outbox-publisher/internal/constants"
+	"flowpay/outbox-publisher/internal/domain"
+	flowpayOutboxErrors "flowpay/outbox-publisher/internal/errors"
+	"flowpay/outbox-publisher/internal/kafka"
+	"flowpay/outbox-publisher/internal/repo"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/tracing"
-	transactionProcessorConstants "flowpay/transaction-processor/internal/constants"
-	"flowpay/transaction-processor/internal/domain"
-	flowpayOutboxErrors "flowpay/transaction-processor/internal/errors"
-	"flowpay/transaction-processor/internal/kafka"
-	"flowpay/transaction-processor/internal/repo"
 	"time"
 )
 
@@ -38,9 +38,9 @@ func leaseExpiryFromNow() time.Time {
 func (w *OutboxWorker) processBatch(ctx context.Context) error {
 
 	// claim batches with lease
-	events, err := w.outboxRepo.ClaimBatch(ctx, w.batchSize, transactionProcessorConstants.MaxKafkaRetryCount, leaseExpiryFromNow())
+	events, err := w.outboxRepo.ClaimBatch(ctx, w.batchSize, outboxPublisherConstants.MaxKafkaRetryCount, leaseExpiryFromNow())
 	if err != nil {
-		logger.LogEvent(ctx, "ERROR", transactionProcessorConstants.ServiceName, "outbox_claim_batch_failed", logger.Fields{
+		logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName, "outbox_claim_batch_failed", logger.Fields{
 			"error": err.Error(),
 		})
 		return err
@@ -50,7 +50,7 @@ func (w *OutboxWorker) processBatch(ctx context.Context) error {
 		eventCtx := tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)
 		err := w.processEvent(eventCtx, event)
 		if err != nil {
-			logger.LogEvent(eventCtx, "ERROR", transactionProcessorConstants.ServiceName, "outbox_process_event_failed", logger.Fields{
+			logger.LogEvent(eventCtx, "ERROR", outboxPublisherConstants.ServiceName, "outbox_process_event_failed", logger.Fields{
 				"event_id":   event.ID,
 				"error":      err.Error(),
 				"error_type": flowpayOutboxErrors.ToOutboxErrorType(err),
@@ -63,7 +63,7 @@ func (w *OutboxWorker) processBatch(ctx context.Context) error {
 }
 
 func (w *OutboxWorker) processEvent(ctx context.Context, event domain.OutboxEventType) error {
-	logger.LogEvent(ctx, "INFO", transactionProcessorConstants.ServiceName, "process_received", logger.Fields{
+	logger.LogEvent(ctx, "INFO", outboxPublisherConstants.ServiceName, "process_received", logger.Fields{
 		"ID":            event.ID,
 		"AggregateType": event.AggregateType,
 		"AggregateID":   event.AggregateID,
@@ -77,7 +77,7 @@ func (w *OutboxWorker) processEvent(ctx context.Context, event domain.OutboxEven
 	txCommitted := false
 	tx, err := w.db.BeginTx(ctx, nil)
 	if err != nil {
-		logger.LogEvent(ctx, "ERROR", transactionProcessorConstants.ServiceName, "failed_to_start_tx", logger.Fields{
+		logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName, "failed_to_start_tx", logger.Fields{
 			"error": err.Error(),
 		})
 		return err
@@ -93,23 +93,23 @@ func (w *OutboxWorker) processEvent(ctx context.Context, event domain.OutboxEven
 			}
 			var markError error
 			var idempotencyError error
-			if event.RetryCount+1 >= int8(transactionProcessorConstants.MaxKafkaRetryCount) {
+			if event.RetryCount+1 >= int8(outboxPublisherConstants.MaxKafkaRetryCount) {
 				markError = w.outboxRepo.MarkFailed(ctx, event.ID, errorType, errorText)
 				idempotencyError = w.idempotencyRepo.MarkFailed(ctx, event.IdempotencyKey, errorType, errorText)
 			} else {
 				markError = w.outboxRepo.MarkRetryableFailure(ctx, event.ID, errorType, errorText)
 			}
 
-			logger.LogEvent(ctx, "ERROR", transactionProcessorConstants.ServiceName, "outbox_worker_batch_failed", logger.Fields{
+			logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName, "outbox_worker_batch_failed", logger.Fields{
 				"error": errorText,
 			})
 			if markError != nil {
-				logger.LogEvent(ctx, "ERROR", transactionProcessorConstants.ServiceName, "outbox_event_mark_failure_failed", logger.Fields{
+				logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName, "outbox_event_mark_failure_failed", logger.Fields{
 					"error": markError.Error(),
 				})
 			}
 			if idempotencyError != nil {
-				logger.LogEvent(ctx, "ERROR", transactionProcessorConstants.ServiceName, "idempotency_mark_failure_failed", logger.Fields{
+				logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName, "idempotency_mark_failure_failed", logger.Fields{
 					"error": idempotencyError.Error(),
 				})
 			}
@@ -143,12 +143,12 @@ func (w *OutboxWorker) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			logger.LogEvent(ctx, "INFO", transactionProcessorConstants.ServiceName, "outbox_worker_shutdown", logger.Fields{})
+			logger.LogEvent(ctx, "INFO", outboxPublisherConstants.ServiceName, "outbox_worker_shutdown", logger.Fields{})
 			return
 		case <-ticker.C:
 			err := w.processBatch(ctx)
 			if err != nil {
-				logger.LogEvent(ctx, "ERROR", transactionProcessorConstants.ServiceName, "outbox_worker_batch_failed", logger.Fields{
+				logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName, "outbox_worker_batch_failed", logger.Fields{
 					"error": err.Error(),
 				})
 			}

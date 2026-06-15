@@ -383,6 +383,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
 				"currency":        req.Currency,
+				"offer_id":        req.OfferId,
 				"error_type":      flowpayPaymentErrors.ErrorTypeDBFailure,
 				"error":           rollbackErr.Error(),
 			})
@@ -394,6 +395,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"receiver_id":     req.ReceiverID,
 				"amount":          req.Amount,
 				"currency":        req.Currency,
+				"offer_id":        req.OfferId,
 				"error_type":      flowpayPaymentErrors.ToPaymentErrorType(err),
 			})
 		}
@@ -440,6 +442,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		TraceID:        traceId,
 		RequestID:      requestId,
 		RetryCount:     0,
+		OfferID:        req.OfferId,
 		Currency:       req.Currency,
 		CreatedAt:      time.Now(),
 	}
@@ -461,6 +464,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		"receiver_id":          req.ReceiverID,
 		"amount":               req.Amount,
 		"currency":             req.Currency,
+		"offer_id":             req.OfferId,
 		"retry_count":          paymentInitiatedEvent.RetryCount,
 		"error_type":           flowpayPaymentErrors.ErrorTypeNone,
 	})
@@ -495,6 +499,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		"receiver_id":     req.ReceiverID,
 		"amount":          req.Amount,
 		"currency":        req.Currency,
+		"offer_id":        req.OfferId,
 		"retry_count":     paymentInitiatedEvent.RetryCount,
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
 	})
@@ -507,15 +512,19 @@ func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (
 	payment, err := s.paymentRepository.GetPaymentByID(ctx, paymentID)
 	if err == nil {
 		return dto.GetPaymentResponseDTO{
-			PaymentID:      payment.ID,
-			IdempotencyKey: payment.IdempotencyKey,
-			SenderID:       payment.SenderID,
-			ReceiverID:     payment.ReceiverID,
-			Amount:         payment.Amount,
-			Currency:       payment.Currency,
-			Status:         payment.Status,
-			CreatedAt:      payment.CreatedAt,
-			UpdatedAt:      payment.UpdatedAt,
+			PaymentID:          payment.ID,
+			IdempotencyKey:     payment.IdempotencyKey,
+			SenderID:           payment.SenderID,
+			ReceiverID:         payment.ReceiverID,
+			Amount:             payment.Amount,
+			Currency:           payment.Currency,
+			OfferID:            payment.OfferID,
+			OfferBenefitAmount: payment.OfferBenefitAmount,
+			OfferType:          payment.OfferType,
+			OfferCode:          payment.OfferCode,
+			Status:             payment.Status,
+			CreatedAt:          payment.CreatedAt,
+			UpdatedAt:          payment.UpdatedAt,
 		}, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -555,6 +564,7 @@ func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (
 	response.ReceiverID = paymentInitiatedEvent.ReceiverID
 	response.Amount = paymentInitiatedEvent.Amount
 	response.Currency = paymentInitiatedEvent.Currency
+	response.OfferID = paymentInitiatedEvent.OfferID
 
 	return response, nil
 }

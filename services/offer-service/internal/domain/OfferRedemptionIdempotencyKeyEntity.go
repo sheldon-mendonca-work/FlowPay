@@ -14,8 +14,10 @@ type OfferRedemptionIdempotencyKeyEntity struct {
 	ErrorCode    string
 	ErrorMessage string
 
-	OfferID      string
-	RedemptionID string
+	OfferID       string
+	PaymentID     string
+	RedemptionID  string
+	ReservationID string
 
 	OwnerToken  string    // who owns processing
 	LockedUntil time.Time // lease expiry

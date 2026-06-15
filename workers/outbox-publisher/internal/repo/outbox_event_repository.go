@@ -3,7 +3,7 @@ package repo
 import (
 	"context"
 	"database/sql"
-	"flowpay/transaction-processor/internal/domain"
+	"flowpay/outbox-publisher/internal/domain"
 	"fmt"
 	"time"
 

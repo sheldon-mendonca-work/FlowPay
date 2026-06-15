@@ -1,4 +1,4 @@
-module flowpay/transaction-processor
+module flowpay/outbox-publisher
 
 go 1.26.2
 

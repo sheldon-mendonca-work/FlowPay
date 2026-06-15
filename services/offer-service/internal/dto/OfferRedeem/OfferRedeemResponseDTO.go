@@ -1,12 +1,13 @@
 package offerRedeemDTO
 
 import (
-	"flowpay/offer-service/internal/types"
 	"time"
 )
 
 type OfferRedemptionResponseDTO struct {
-	OfferID        string                `json:"offer_id"`
-	Status         types.OfferStatusEnum `json:"status"`
-	RedemptionTime time.Time             `json:"redemption_time"`
+	OfferID        string    `json:"offer_id"`
+	Status         string    `json:"status"`
+	RedemptionTime time.Time `json:"redemption_time"`
+	RedemptionID   string    `json:"redemption_id"`
+	PaymentID      string    `json:"payment_id"`
 }
