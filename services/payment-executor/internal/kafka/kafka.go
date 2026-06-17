@@ -8,12 +8,11 @@ import (
 	"flowpay/payment-executor/internal/domain"
 	flowpayPaymentErrors "flowpay/payment-executor/internal/errors"
 	"flowpay/pkg/observability/logger"
-	"flowpay/pkg/observability/tracing"
 
 	"github.com/segmentio/kafka-go"
 )
 
-type Handler func(ctx context.Context, event domain.PaymentInitiatedEvent) error
+type Handler func(ctx context.Context, payload kafka.Message) error
 
 type KafkaConsumer struct {
 	reader  *kafka.Reader
@@ -41,12 +40,11 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 			if errors.Is(err, context.Canceled) {
 				return nil
 			}
+
 			logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "fetching_kafka_message_failed", logger.Fields{
-				"topic":     msg.Topic,
-				"partition": msg.Partition,
-				"offset":    msg.Offset,
-				"error":     err.Error(),
+				"error": err.Error(),
 			})
+
 			return err
 		}
 
@@ -57,60 +55,45 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 			"error_type": flowpayPaymentErrors.ErrorTypeNone,
 		})
 
-		event, err := c.decodeMessage(msg.Value)
-		if err != nil {
-			logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "kafka_message_decode_failed", logger.Fields{
-				"topic":      msg.Topic,
-				"partition":  msg.Partition,
-				"offset":     msg.Offset,
-				"error_type": flowpayPaymentErrors.ErrorTypeKafkaMessageDecoding,
-				"error":      err.Error(),
-			})
-			if err := c.commitMessage(ctx, msg); err != nil {
-				return err
-			}
-			continue
-		}
-
-		ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)
-
 		if c.handler != nil {
-			err = c.handler(ctx, event)
+			err = c.handler(ctx, msg)
 		}
 
 		if err != nil {
 			errorType := flowpayPaymentErrors.ToPaymentErrorType(err)
-			logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "payment_execution_failed", logger.Fields{
-				"payment_id":      event.ID,
-				"idempotency_key": event.IdempotencyKey,
-				"topic":           msg.Topic,
-				"partition":       msg.Partition,
-				"offset":          msg.Offset,
-				"error_type":      errorType,
-				"error":           err.Error(),
+
+			logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "message_processing_failed", logger.Fields{
+				"topic":      msg.Topic,
+				"partition":  msg.Partition,
+				"offset":     msg.Offset,
+				"error_type": errorType,
+				"error":      err.Error(),
 			})
+
 			if shouldCommitOnHandlerError(err) {
+
 				if err := c.commitMessage(ctx, msg); err != nil {
 					return err
 				}
-				logger.LogEvent(ctx, "WARN", constants.PaymentExecutorServiceName, "payment_execution_failed_committed", logger.Fields{
-					"payment_id":      event.ID,
-					"idempotency_key": event.IdempotencyKey,
-					"topic":           msg.Topic,
-					"partition":       msg.Partition,
-					"offset":          msg.Offset,
-					"error_type":      errorType,
+
+				logger.LogEvent(ctx, "WARN", constants.PaymentExecutorServiceName, "message_processing_failed_committed", logger.Fields{
+					"topic":      msg.Topic,
+					"partition":  msg.Partition,
+					"offset":     msg.Offset,
+					"error_type": errorType,
 				})
+
 			} else {
-				logger.LogEvent(ctx, "WARN", constants.PaymentExecutorServiceName, "payment_execution_failed_retryable", logger.Fields{
-					"payment_id":      event.ID,
-					"idempotency_key": event.IdempotencyKey,
-					"topic":           msg.Topic,
-					"partition":       msg.Partition,
-					"offset":          msg.Offset,
-					"error_type":      errorType,
+
+				logger.LogEvent(ctx, "WARN", constants.PaymentExecutorServiceName, "message_processing_failed_retryable", logger.Fields{
+					"topic":      msg.Topic,
+					"partition":  msg.Partition,
+					"offset":     msg.Offset,
+					"error_type": errorType,
 				})
+
 			}
+
 			continue
 		}
 
@@ -118,15 +101,11 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 			return err
 		}
 
-		logger.LogEvent(ctx, "INFO", constants.PaymentExecutorServiceName, "payment_execution_succeeded", logger.Fields{
-			"payment_id":      event.ID,
-			"idempotency_key": event.IdempotencyKey,
-			"topic":           msg.Topic,
-			"partition":       msg.Partition,
-			"offset":          msg.Offset,
-			"trace_id":        event.TraceID,
-			"request_id":      event.RequestID,
-			"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+		logger.LogEvent(ctx, "INFO", constants.PaymentExecutorServiceName, "message_processed_successfully", logger.Fields{
+			"topic":      msg.Topic,
+			"partition":  msg.Partition,
+			"offset":     msg.Offset,
+			"error_type": flowpayPaymentErrors.ErrorTypeNone,
 		})
 	}
 }

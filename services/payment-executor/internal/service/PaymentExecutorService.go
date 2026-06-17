@@ -14,6 +14,7 @@ import (
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/tracing"
 	"fmt"
+	"time"
 )
 
 type AccountRepository interface {
@@ -27,7 +28,7 @@ type PaymentRepository interface {
 }
 
 type TransactionRepository interface {
-	CreateTransactionsForSenderAndReceiver(tx *sql.Tx, ctx context.Context, senderTransaction domain.Transaction, receiverTransaction domain.Transaction) error
+	CreateTransactions(tx *sql.Tx, ctx context.Context, transactions []domain.Transaction) error
 }
 
 type IdempotencyRepository interface {
@@ -40,6 +41,7 @@ type IdempotencyRepository interface {
 }
 
 type OutboxEventsRepository interface {
+	InsertOutboxEvent(tx *sql.Tx, ctx context.Context, payload domain.OutboxEventType) error
 }
 
 type PaymentExecutorService struct {
@@ -103,7 +105,56 @@ func logPaymentStepFailure(ctx context.Context, req domain.PaymentInitiatedEvent
 	})
 }
 
-func validateSenderAndReceiverAccounts(accounts map[string]domain.Account, event domain.PaymentInitiatedEvent, amount int64) error {
+func logOfferRejectedForPaymentStepFailure(ctx context.Context, req domain.OfferOutboxEventType, step string, err error, offer domain.OfferRejectedEvent) {
+	logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "payment_rejection_step_failed", logger.Fields{
+		"step":            step,
+		"sender_id":       offer.SenderID,
+		"receiver_id":     offer.ReceiverID,
+		"idempotency_key": req.IdempotencyKey,
+		"trace_id":        req.TraceID,
+		"request_id":      req.RequestID,
+		"amount":          offer.Amount,
+		"currency":        offer.Currency,
+		"retry_count":     req.RetryCount,
+		"error_type":      flowpayPaymentErrors.ToPaymentErrorType(err),
+		"error":           err.Error(),
+	})
+}
+
+func MapPaymentSuccessToOutbox(event domain.PaymentSuccessEvent, retryCount int8, traceID string, requestID string) (domain.OutboxEventType, error) {
+	payloadBytes, err := json.Marshal(event)
+	if err != nil {
+		return domain.OutboxEventType{}, err
+	}
+
+	eventId, err := newPaymentID()
+	if err != nil {
+		return domain.OutboxEventType{}, err
+	}
+
+	eventType := "payment_success"
+	if event.OfferID != nil && *event.OfferID != "" {
+		eventType = "offer_applicable_payment_success"
+	}
+
+	return domain.OutboxEventType{
+		ID:             eventId,
+		AggregateType:  "payment",
+		AggregateID:    event.PaymentID,
+		EventType:      eventType,
+		EventVersion:   1,
+		Status:         domain.OutboxEventPending,
+		Payload:        string(payloadBytes),
+		CreatedAt:      time.Now(),
+		TraceID:        traceID,
+		RequestID:      requestID,
+		RetryCount:     retryCount,
+		IdempotencyKey: event.IdempotencyKey,
+	}, nil
+}
+
+func validateSenderAndReceiverAccounts(accounts map[string]domain.Account, event domain.PaymentInitiatedEvent, amount int64, discountAmount int64) error {
+
 	if event.SenderID == event.ReceiverID {
 		return flowpayPaymentErrors.ErrSenderReceiverIDMatching
 	}
@@ -126,13 +177,48 @@ func validateSenderAndReceiverAccounts(accounts map[string]domain.Account, event
 		return fmt.Errorf("%w: %s", flowpayPaymentErrors.ErrAccountCurrencyMismatch, event.SenderID)
 	}
 
-	if senderAccount.Balance < amount {
+	if !senderAccount.AllowNegativeBalance && senderAccount.Balance < (amount-discountAmount) {
 		return fmt.Errorf("%w: sender_id=%s", flowpayPaymentErrors.ErrInsufficientBalance, event.SenderID)
 	}
 	return nil
 }
 
-func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domain.PaymentInitiatedEvent) (dto.PaymentResponseDTO, error) {
+func getOfferToBeRedeemed(
+	amount int64,
+	offer *domain.OfferReservedEvent,
+) int64 {
+
+	if offer == nil {
+		return 0
+	}
+
+	if amount < int64(offer.MinimumPaymentAmount) {
+		return 0
+	}
+
+	// Fixed amount offer
+	if offer.OfferAmount != nil && *offer.OfferAmount > 0 {
+		return min(amount, int64(*offer.OfferAmount))
+	}
+
+	// Percentage offer
+	if offer.OfferPercentage != nil && *offer.OfferPercentage > 0 {
+		benefit := amount * int64(*offer.OfferPercentage) / 100
+
+		if offer.MaxBenefitAmount > 0 {
+			benefit = min(
+				benefit,
+				int64(offer.MaxBenefitAmount),
+			)
+		}
+
+		return benefit
+	}
+
+	return 0
+}
+
+func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domain.PaymentInitiatedEvent, offer *domain.OfferReservedEvent) (dto.PaymentResponseDTO, error) {
 	traceID := event.TraceID
 	requestID := event.RequestID
 
@@ -286,7 +372,29 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		return rollbackTechnicalFailure("account_lock_and_load", err)
 	}
 
-	err = validateSenderAndReceiverAccounts(accounts, event, amount)
+	discountAmount := int64(0)
+	cashbackAmount := int64(0)
+
+	if offer != nil {
+		switch offer.OfferType {
+		case "DISCOUNT":
+			{
+				discountAmount += getOfferToBeRedeemed(amount, offer)
+				break
+			}
+		case "CASHBACK":
+			{
+				cashbackAmount += getOfferToBeRedeemed(amount, offer)
+				break
+			}
+		default:
+			{
+				break
+			}
+		}
+	}
+
+	err = validateSenderAndReceiverAccounts(accounts, event, amount, discountAmount)
 
 	if err != nil {
 		if isDeterministicBusinessFailure(err) {
@@ -298,7 +406,7 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 
 	// Update balances
 
-	err = r.accountRepository.UpdateBalanceForSenderAndReceiver(tx, eventCtx, senderID, receiverID, amount)
+	err = r.accountRepository.UpdateBalanceForSenderAndReceiver(tx, eventCtx, senderID, receiverID, amount-discountAmount)
 
 	if err != nil {
 		if isDeterministicBusinessFailure(err) {
@@ -308,7 +416,12 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		return rollbackTechnicalFailure("account_validation", err)
 	}
 
-	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "updated balances sender_id=%s receiver_id=%s amount=%d", senderID, receiverID, amount)
+	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "updated balances sender_id=%s receiver_id=%s amount=%d", senderID, receiverID, amount-discountAmount)
+
+	offerDiscount := discountAmount
+	if cashbackAmount > 0 {
+		offerDiscount = cashbackAmount
+	}
 
 	payment := domain.Payment{
 		ID:             paymentId,
@@ -316,6 +429,10 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		SenderID:       senderID,
 		ReceiverID:     receiverID,
 		Amount:         amount,
+		NetAmount:      amount - discountAmount,
+		OfferID:        event.OfferID,
+		OfferType:      offer.OfferType,
+		OfferAmount:    offerDiscount,
 		Currency:       event.Currency,
 		Status:         string(types.SUCCESS),
 	}
@@ -328,19 +445,92 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "inserted payment row payment_id=%s sender_id=%s receiver_id=%s amount=%d", payment.ID, payment.SenderID, payment.ReceiverID, payment.Amount)
 
 	// Create Transacion entries for both sender and reciever
-	senderTransaction, err := generateSenderTransaction(payment)
+	transactions := []domain.Transaction{}
+	senderTransaction, err := generateSenderTransaction(payment, "PAYMENT")
 	if err != nil {
 		return rollbackTechnicalFailure("sender_transaction_generate", err)
 	}
-	receiverTransaction, err := generateReceiverTransaction(payment)
+	transactions = append(transactions, senderTransaction)
+
+	receiverTransaction, err := generateReceiverTransaction(payment, "PAYMENT")
 	if err != nil {
 		return rollbackTechnicalFailure("receiver_transaction_generate", err)
 	}
+	transactions = append(transactions, receiverTransaction)
 
-	err = r.transactionRepository.CreateTransactionsForSenderAndReceiver(tx, eventCtx, senderTransaction, receiverTransaction)
+	if payment.OfferType == "CASHBACK" &&
+		payment.OfferAmount > 0 {
+
+		poolDebitTx, _ := generatePromotionPoolDebitTransaction(
+			payment,
+			offer.PromotionPoolAccountId,
+		)
+
+		cashbackCreditTx, _ := generateCashbackCreditTransaction(
+			payment,
+		)
+
+		transactions = append(
+			transactions,
+			poolDebitTx,
+			cashbackCreditTx,
+		)
+	}
+
+	err = r.transactionRepository.CreateTransactions(tx, eventCtx, transactions)
 	if err != nil {
 		return rollbackTechnicalFailure("transaction_insert", err)
 	}
+	// Create Outbox event
+	paymentSuccessEvent := domain.PaymentSuccessEvent{
+		PaymentID:  payment.ID,
+		SenderID:   payment.SenderID,
+		ReceiverID: payment.ReceiverID,
+		Amount:     payment.Amount,
+		NetAmount:  payment.NetAmount,
+		RetryCount: 0,
+
+		OfferID:        &offer.OfferID,
+		OfferType:      &offer.OfferType,
+		OfferAmount:    offer.OfferAmount,
+		IdempotencyKey: offer.IdempotencyKey,
+		ReservationID:  offer.ReservationID,
+
+		Currency:  payment.Currency,
+		TraceID:   traceID,
+		RequestID: requestID,
+		CreatedAt: time.Now(),
+	}
+
+	outboxEvent, err := MapPaymentSuccessToOutbox(paymentSuccessEvent, 0, paymentSuccessEvent.TraceID, paymentSuccessEvent.RequestID)
+	if err != nil {
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("outbox_event_creation", err)
+		}
+		return rollbackTechnicalFailure("outbox_event_creation", err)
+	}
+
+	err = r.outboxEventsRepository.InsertOutboxEvent(tx, ctx, outboxEvent)
+	if err != nil {
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("outbox_event_insertion", err)
+		}
+		return rollbackTechnicalFailure("outbox_event_insertion", err)
+	}
+
+	logger.LogEvent(ctx, "INFO", constants.PaymentExecutorServiceName, "outbox_event_inserted", logger.Fields{
+		"trace_id":             outboxEvent.TraceID,
+		"outbox_event_id":      outboxEvent.ID,
+		"outbox_event_version": outboxEvent.EventVersion,
+		"sender_id":            paymentSuccessEvent.SenderID,
+		"receiver_id":          paymentSuccessEvent.ReceiverID,
+		"amount":               paymentSuccessEvent.Amount,
+		"currency":             paymentSuccessEvent.Currency,
+		"offer_id":             *paymentSuccessEvent.OfferID,
+		"reservation_id":       paymentSuccessEvent.ReservationID,
+		"retry_count":          paymentSuccessEvent.RetryCount,
+		"error_type":           flowpayPaymentErrors.ErrorTypeNone,
+	})
 
 	// Mark Idempotency Completed
 	response := dto.PaymentResponseDTO{
@@ -380,35 +570,298 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 	return response, nil
 }
 
-func generateSenderTransaction(payment domain.Payment) (domain.Transaction, error) {
+func (r *PaymentExecutorService) HandlePaymentInitiated(ctx context.Context, event domain.PaymentInitiatedEvent) (dto.PaymentResponseDTO, error) {
+	response, err := r.ExecutePayment(ctx, event, nil)
+	return response, err
+}
+
+func (r *PaymentExecutorService) ExecuteOfferReservedPayment(
+	ctx context.Context,
+	event domain.OfferOutboxEventType,
+) (dto.PaymentResponseDTO, error) {
+
+	var offer domain.OfferReservedEvent
+
+	if err := json.Unmarshal([]byte(event.Payload), &offer); err != nil {
+		return dto.PaymentResponseDTO{}, err
+	}
+
+	paymentEvent := domain.PaymentInitiatedEvent{
+		ID:             offer.PaymentID,
+		SenderID:       offer.SenderID,
+		ReceiverID:     offer.ReceiverID,
+		IdempotencyKey: offer.PaymentIdempotencyKey,
+		TraceID:        offer.TraceID,
+		RequestID:      offer.RequestID,
+		Amount:         offer.Amount,
+		Currency:       offer.Currency,
+		OfferID:        offer.OfferID,
+		CreatedAt:      time.Now(),
+	}
+
+	return r.ExecutePayment(ctx, paymentEvent, &offer)
+}
+
+func (r *PaymentExecutorService) ExecuteOfferRejectedPayment(ctx context.Context, event domain.OfferOutboxEventType) (dto.PaymentResponseDTO, error) {
+	traceID := event.TraceID
+	requestID := event.RequestID
+	var offer domain.OfferRejectedEvent
+
+	if err := json.Unmarshal([]byte(event.Payload), &offer); err != nil {
+		return dto.PaymentResponseDTO{}, err
+	}
+
+	eventCtx := tracing.WithTraceAndRequestIDs(ctx, traceID, requestID)
+	logger.LogEvent(eventCtx, "INFO", constants.PaymentExecutorServiceName, "offer_rejection_process_received", logger.Fields{
+		"ID":              event.ID,
+		"sender_id":       offer.SenderID,
+		"receiver_id":     offer.ReceiverID,
+		"idempotency_key": event.IdempotencyKey,
+		"amount":          offer.Amount,
+		"currency":        offer.Currency,
+		"retry_count":     event.RetryCount,
+		"error_type":      "NONE",
+	})
+
+	// Get PaymentId from idempotency table
+	idempotencyItem, err := r.idempotencyRepository.GetByKey(ctx, event.IdempotencyKey)
+	if err != nil {
+		logger.LogEvent(eventCtx, "ERROR", constants.PaymentExecutorServiceName, "failed_to_get_payment_id_from_idempotency", logger.Fields{
+			"error": err.Error(),
+		})
+
+		return dto.PaymentResponseDTO{}, err
+	}
+
+	paymentId := idempotencyItem.PaymentID
+
+	// Already completed -> duplicate event
+	if idempotencyItem.Status == "COMPLETED" {
+		logger.LogEvent(eventCtx, "INFO",
+			constants.PaymentExecutorServiceName,
+			"offer_rejection_duplicate_completed_payment",
+			logger.Fields{
+				"payment_id":      idempotencyItem.PaymentID,
+				"idempotency_key": offer.PaymentIdempotencyKey,
+				"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+			},
+		)
+
+		return dto.PaymentResponseDTO{
+			PaymentID: idempotencyItem.PaymentID,
+			Status:    "Payment Accepted",
+		}, nil
+	}
+
+	// Already failed -> duplicate event
+	if idempotencyItem.Status == "FAILED" {
+		logger.LogEvent(eventCtx, "INFO",
+			constants.PaymentExecutorServiceName,
+			"offer_rejection_duplicate_failed_payment",
+			logger.Fields{
+				"payment_id":      idempotencyItem.PaymentID,
+				"idempotency_key": offer.PaymentIdempotencyKey,
+				"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+			},
+		)
+
+		return dto.PaymentResponseDTO{
+			PaymentID: idempotencyItem.PaymentID,
+			Status:    "Payment Failed",
+		}, nil
+	}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "failed_to_start_tx_for_offer_rejected", logger.Fields{
+			"error": err.Error(),
+		})
+		return dto.PaymentResponseDTO{}, err
+	}
+
+	txClosed := false
+	rollbackDueToError := false
+
+	logger.LogPlain(ctx, constants.PaymentExecutorServiceName, "started payment executor offer rejection transaction id=%s sender_id=%s receiver_id=%s amount=%d", event.ID, offer.SenderID, offer.ReceiverID, offer.Amount)
+
+	defer func() {
+		if txClosed {
+			return
+		}
+		rollbackErr := tx.Rollback()
+		switch {
+		case rollbackErr == nil && rollbackDueToError:
+			logger.LogEvent(eventCtx, "WARN", constants.PaymentExecutorServiceName, "payment_executor_tx_rolled_back", logger.Fields{
+				"id":              event.ID,
+				"sender_id":       offer.SenderID,
+				"receiver_id":     offer.ReceiverID,
+				"idempotency_key": event.IdempotencyKey,
+				"amount":          offer.Amount,
+				"currency":        offer.Currency,
+				"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+			})
+		case rollbackErr != nil && rollbackErr != sql.ErrTxDone:
+			logger.LogEvent(eventCtx, "ERROR", constants.PaymentExecutorServiceName, "payment_executor_tx_rollback_failed", logger.Fields{
+				"id":              event.ID,
+				"sender_id":       offer.SenderID,
+				"receiver_id":     offer.ReceiverID,
+				"idempotency_key": event.IdempotencyKey,
+				"amount":          offer.Amount,
+				"currency":        offer.Currency,
+				"error_type":      flowpayPaymentErrors.ErrorTypeDBFailure,
+				"error":           rollbackErr.Error(),
+			})
+		}
+	}()
+
+	rollbackTechnicalFailure := func(step string, err error) (dto.PaymentResponseDTO, error) {
+		rollbackDueToError = true
+
+		logOfferRejectedForPaymentStepFailure(eventCtx, event, step, err, offer)
+
+		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
+			logger.LogEvent(eventCtx, "ERROR", constants.PaymentExecutorServiceName, "payment_tx_rollback_failed", logger.Fields{
+				"idempotency_key": event.IdempotencyKey,
+				"sender_id":       offer.SenderID,
+				"receiver_id":     offer.ReceiverID,
+				"amount":          offer.Amount,
+				"currency":        offer.Currency,
+				"error_type":      flowpayPaymentErrors.ErrorTypeDBFailure,
+				"error":           rollbackErr.Error(),
+			})
+		} else {
+			logger.LogEvent(eventCtx, "WARN", constants.PaymentExecutorServiceName, "payment_tx_rolled_back", logger.Fields{
+				"idempotency_key": event.IdempotencyKey,
+				"sender_id":       offer.SenderID,
+				"receiver_id":     offer.ReceiverID,
+				"amount":          offer.Amount,
+				"currency":        offer.Currency,
+				"error_type":      flowpayPaymentErrors.ToPaymentErrorType(err),
+			})
+		}
+		txClosed = true
+		return dto.PaymentResponseDTO{}, err
+	}
+
+	// Mark Idempotency Failed
+	response := dto.PaymentResponseDTO{
+		PaymentID: paymentId,
+		Status:    "Payment Failed_Due_To_Rejected_Offer",
+	}
+
+	logger.LogEvent(
+		eventCtx,
+		"INFO",
+		constants.PaymentExecutorServiceName,
+		"marking_payment_failed_due_to_offer_rejection",
+		logger.Fields{
+			"payment_id":      idempotencyItem.PaymentID,
+			"idempotency_key": event.IdempotencyKey,
+			"offer_id":        offer.OfferID,
+			"error_type":      flowpayPaymentErrors.ErrorTypeOfferRejected,
+		},
+	)
+
+	if err := r.idempotencyRepository.MarkFailed(tx, eventCtx, event.IdempotencyKey, flowpayPaymentErrors.ErrorTypeOfferRejected, "offer rejected", offer.PaymentOwnerToken); err != nil {
+		return rollbackTechnicalFailure("idempotency_mark_failed", err)
+	}
+
+	// Commit all transactions
+	if err := tx.Commit(); err != nil {
+		rollbackDueToError = true
+		logOfferRejectedForPaymentStepFailure(eventCtx, event, "tx_commit", err, offer)
+		return dto.PaymentResponseDTO{}, err
+	}
+	txClosed = true
+
+	logger.LogEvent(eventCtx, "INFO", constants.PaymentExecutorServiceName, "payment_executor_tx_committed", logger.Fields{
+		"idempotency_key": event.IdempotencyKey,
+		"payment_id":      idempotencyItem.PaymentID,
+		"sender_id":       offer.SenderID,
+		"receiver_id":     offer.ReceiverID,
+		"amount":          offer.Amount,
+		"currency":        offer.Currency,
+		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+	})
+	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "committed payment transaction outboxEvent_id=%s idempotency_key=%s", event.ID, event.IdempotencyKey)
+
+	return response, nil
+}
+
+func generateSenderTransaction(payment domain.Payment, transactionCategory string) (domain.Transaction, error) {
 	transactionID, err := newPaymentID()
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 	return domain.Transaction{
-		ID:        transactionID,
-		PaymentID: payment.ID,
-		AccountID: payment.SenderID,
-		Type:      "DEBIT",
-		Amount:    payment.Amount,
-		Currency:  payment.Currency,
-		Status:    "SUCCESS",
+		ID:                  transactionID,
+		PaymentID:           payment.ID,
+		AccountID:           payment.SenderID,
+		Type:                "DEBIT",
+		TransactionCategory: transactionCategory,
+		Amount:              payment.Amount,
+		Currency:            payment.Currency,
+		Status:              "SUCCESS",
 	}, nil
 }
 
-func generateReceiverTransaction(payment domain.Payment) (domain.Transaction, error) {
+func generateReceiverTransaction(payment domain.Payment, transactionCategory string) (domain.Transaction, error) {
 	transactionID, err := newPaymentID()
 	if err != nil {
 		return domain.Transaction{}, err
 	}
 	return domain.Transaction{
-		ID:        transactionID,
-		PaymentID: payment.ID,
-		AccountID: payment.ReceiverID,
-		Type:      "CREDIT",
-		Amount:    payment.Amount,
-		Currency:  payment.Currency,
-		Status:    "SUCCESS",
+		ID:                  transactionID,
+		PaymentID:           payment.ID,
+		AccountID:           payment.ReceiverID,
+		Type:                "CREDIT",
+		TransactionCategory: transactionCategory,
+		Amount:              payment.Amount,
+		Currency:            payment.Currency,
+		Status:              "SUCCESS",
+	}, nil
+}
+
+func generatePromotionPoolDebitTransaction(
+	payment domain.Payment,
+	promotionPoolAccountID string,
+) (domain.Transaction, error) {
+
+	transactionID, err := newPaymentID()
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+
+	return domain.Transaction{
+		ID:                  transactionID,
+		PaymentID:           payment.ID,
+		AccountID:           promotionPoolAccountID,
+		Type:                "DEBIT",
+		TransactionCategory: "CASHBACK",
+		Amount:              payment.OfferAmount,
+		Currency:            payment.Currency,
+		Status:              "SUCCESS",
+	}, nil
+}
+
+func generateCashbackCreditTransaction(
+	payment domain.Payment,
+) (domain.Transaction, error) {
+
+	transactionID, err := newPaymentID()
+	if err != nil {
+		return domain.Transaction{}, err
+	}
+
+	return domain.Transaction{
+		ID:                  transactionID,
+		PaymentID:           payment.ID,
+		AccountID:           payment.SenderID,
+		Type:                "CREDIT",
+		TransactionCategory: "CASHBACK",
+		Amount:              payment.OfferAmount,
+		Currency:            payment.Currency,
+		Status:              "SUCCESS",
 	}, nil
 }
 

@@ -13,6 +13,7 @@ const (
 	ErrorTypeInsufficientBalance   = "INSUFFICIENT_BALANCE"
 	ErrorTypeIdempotencyMismatch   = "IDEMPOTENCY_MISMATCH"
 	ErrorTypeIdempotencyInProgress = "IDEMPOTENCY_IN_PROGRESS"
+	ErrorTypeOfferRejected         = "OFFER_REJECTED"
 	ErrorTypeDBFailure             = "DB_FAILURE"
 	ErrorTypeTimeout               = "TIMEOUT"
 	ErrorTypeCanceled              = "CANCELED"

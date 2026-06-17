@@ -14,6 +14,7 @@ type OfferCreationRequestDTO struct {
 	MaximumPaymentAmount  int32     `json:"max_payment_amount"`
 	MaxRedemptionsPerUser int32     `json:"max_redemptions_per_user"`
 	MaxRedemptions        int32     `json:"max_redemptions"`
+	BudgetAmount          *int32    `json:"budget_amount"`
 	StartTime             time.Time `json:"start_time"`
 	EndTime               time.Time `json:"end_time"`
 }

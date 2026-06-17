@@ -5,6 +5,7 @@ use (
 	./services/offer-service
 	./services/payment-executor
 	./workers/offer-expiry-worker
+	./workers/offer-outbox-publisher
 	./services/payment-service
 	./services/reconciliation-service
 	./workers/outbox-publisher

@@ -39,7 +39,9 @@ func main() {
 	offerRedemptionIdempotencyRepository := repository.NewOfferRedemptionIdempotencyRepository(db)
 	offerRedemptionRepository := repository.NewOfferRedemptionsRepository(db)
 	offerReservationRepository := repository.NewOfferReservationsRepository(db)
+	offerOutboxRepository := repository.NewOfferOutboxRepository(db)
 	usersRepository := repository.NewUserRepository(db)
+	accountsRepository := repository.NewAccountsRepository(db)
 
 	offerService := service.NewOfferService(db,
 		offerRepository,
@@ -50,16 +52,23 @@ func main() {
 		offerReservationRepository,
 		usersRepository,
 		offerReservationIdempotencyRepository,
-		offerRedemptionIdempotencyRepository)
+		offerRedemptionIdempotencyRepository,
+		accountsRepository,
+		offerOutboxRepository,
+	)
 
 	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
-	kafkaTopic := utils.GetEnv("KAFKA_TOPIC", "payment.initiated")
+	offerInitiatedKafkaTopic := utils.GetEnv("OFFER_INITIATED_KAFKA_TOPIC", "offer.initiated")
+	paymentSuccessKafkaTopic := utils.GetEnv("PAYMENT_SUCCESS_KAFKA_TOPIC", "payment.succeeded")
 	kafkaGroupID := utils.GetEnv("KAFKA_GROUP_ID", "offer-service-group")
 
 	handler := api.NewKafkaOfferHandler(offerService)
-	consumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), kafkaTopic, kafkaGroupID, handler.HandlePaymentInitiated)
 
-	defer consumer.Close()
+	offerInitiatedKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), offerInitiatedKafkaTopic, kafkaGroupID, handler.HandlePaymentInitiated)
+	defer offerInitiatedKafkaConsumer.Close()
+
+	paymentSuccessKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), paymentSuccessKafkaTopic, kafkaGroupID, handler.HandlePaymentSuccess)
+	defer paymentSuccessKafkaConsumer.Close()
 
 	httpHandler := api.NewHandler(offerService)
 

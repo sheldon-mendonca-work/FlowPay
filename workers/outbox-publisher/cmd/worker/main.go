@@ -23,12 +23,16 @@ func main() {
 	idempotencyRepository := repo.NewPaymentIdempotencyRepository(db)
 
 	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
-	kafkaTopic := utils.GetEnv("KAFKA_TOPIC", "payment.initiated")
+	paymentInitiatedKafkaTopic := utils.GetEnv("KAFKA_TOPIC", "payment.initiated")
+	offerInititatedKafkaTopic := utils.GetEnv("OFFER_INITIATED_KAFKA_TOPIC", "offer.initiated")
+	paymentSuccessfulKafkaTopic := utils.GetEnv("OFFER_INITIATED_KAFKA_TOPIC", "payment.succeeded")
 
-	kafkaProducer := kafka.NewProducer([]string{kafkaBroker}, kafkaTopic)
+	kafkaProducer := kafka.NewProducer([]string{kafkaBroker}, paymentInitiatedKafkaTopic)
+	offerInititatedKafkaProducer := kafka.NewProducer([]string{kafkaBroker}, offerInititatedKafkaTopic)
+	paymentSuccessKafkaProducer := kafka.NewProducer([]string{kafkaBroker}, paymentSuccessfulKafkaTopic)
 
-	outboxWorker := worker.NewOutboxWorker(db, *outboxRepository, *idempotencyRepository, *kafkaProducer)
+	outboxWorker := worker.NewOutboxWorker(db, *outboxRepository, *idempotencyRepository, *kafkaProducer, *offerInititatedKafkaProducer, *paymentSuccessKafkaProducer)
 
-	log.Printf("transaction processor worker starting broker=%s topic=%s", kafkaBroker, kafkaTopic)
+	log.Printf("transaction processor worker starting broker=%s topic=[%s, %s, %s]", kafkaBroker, paymentInitiatedKafkaTopic, offerInititatedKafkaTopic, paymentSuccessfulKafkaTopic)
 	outboxWorker.Start(ctx)
 }

@@ -21,11 +21,13 @@ func (r *AccountRepository) CreateAccount(ctx context.Context, account domain.Ac
 			id,
 			account_name,
 			balance,
+			allow_negative_balance,
 			currency,
+			account_type,
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, NOW(), NOW());
+		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW());
 	`
 
 	_, err := r.db.ExecContext(ctx,
@@ -33,7 +35,9 @@ func (r *AccountRepository) CreateAccount(ctx context.Context, account domain.Ac
 		account.ID,
 		account.AccountName,
 		account.Balance,
+		account.AllowNegativeBalance,
 		account.Currency,
+		account.AccountType,
 	)
 
 	if err != nil {
@@ -87,6 +91,7 @@ func (r *AccountRepository) UpdateBalanceForSenderAndReceiver(
 	senderID string,
 	receiverID string,
 	amount int64,
+	allowNegativeBalance bool,
 ) error {
 
 	// 1. Debit sender (DB enforces balance >= amount)
@@ -94,10 +99,10 @@ func (r *AccountRepository) UpdateBalanceForSenderAndReceiver(
 		UPDATE accounts
 		SET balance = balance - $2,
 			updated_at = NOW()
-		WHERE id = $1 AND balance >= $2;
+		WHERE id = $1 AND (allow_negative_balance = $2 OR balance >= $3);
 	`
 
-	debitRes, err := tx.ExecContext(ctx, debitQuery, senderID, amount)
+	debitRes, err := tx.ExecContext(ctx, debitQuery, senderID, allowNegativeBalance, amount)
 	if err != nil {
 		return err
 	}

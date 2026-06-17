@@ -1,13 +1,30 @@
 topics:
   - name: payment.initiated
     partitions: 3
+  
+  - name: offer.initiated
+    partitions: 3
+
+  - name: offer.reserved
+    partitions: 3
+
+  - name: offer.reservation_failed
+    partitions: 3
+
+  - name: payment.succeeded
+    partitions: 3
+
+  - name: payment.failed
+    partitions: 3
+
   - name: ledger.events
     partitions: 3
+
   - name: wallet.events
     partitions: 3
-  - name: offer.events
-    partitions: 3
+
   - name: fraud.events
     partitions: 3
+
   - name: scheduler.events
     partitions: 3

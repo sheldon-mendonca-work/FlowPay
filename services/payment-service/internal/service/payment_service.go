@@ -184,11 +184,16 @@ func MapPaymentInitiatedToOutbox(event domain.PaymentInitiatedEvent, retryCount 
 		return domain.OutboxEventType{}, err
 	}
 
+	eventType := "payment_initiated"
+	if event.OfferID != "" {
+		eventType = "offer_initiated"
+	}
+
 	return domain.OutboxEventType{
 		ID:             eventId,
 		AggregateType:  "payment",
 		AggregateID:    event.ID,
-		EventType:      "payment_initiated",
+		EventType:      eventType,
 		EventVersion:   1,
 		Status:         domain.OutboxEventPending,
 		Payload:        string(payloadBytes),

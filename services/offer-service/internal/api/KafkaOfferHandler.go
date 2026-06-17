@@ -2,9 +2,17 @@ package api
 
 import (
 	"context"
+	"encoding/json"
+	"flowpay/offer-service/internal/constants"
 	"flowpay/offer-service/internal/domain"
+	offerRedeemDTO "flowpay/offer-service/internal/dto/OfferRedeem"
 	offerReserveDTO "flowpay/offer-service/internal/dto/OfferReserve"
+	flowpayOfferErrors "flowpay/offer-service/internal/errors"
 	"flowpay/offer-service/internal/service"
+	"flowpay/pkg/observability/logger"
+	"flowpay/pkg/observability/tracing"
+
+	"github.com/segmentio/kafka-go"
 )
 
 type KafkaOfferHandler struct {
@@ -17,9 +25,9 @@ func NewKafkaOfferHandler(offerService *service.OfferService) *KafkaOfferHandler
 
 func (h *KafkaOfferHandler) HandlePaymentInitiated(
 	ctx context.Context,
-	event domain.PaymentInitiatedEvent,
+	payload kafka.Message,
 ) error {
-
+	var event domain.PaymentInitiatedEvent
 	if event.OfferID == "" {
 		return nil
 	}
@@ -27,14 +35,71 @@ func (h *KafkaOfferHandler) HandlePaymentInitiated(
 	_, err := h.offerService.ReserveOffer(
 		ctx,
 		offerReserveDTO.OfferReservationRequestDTO{
-			AccountID: event.SenderID,
-			PaymentID: event.ID,
+			AccountID:             event.SenderID,
+			PaymentID:             event.ID,
+			SenderID:              event.SenderID,
+			ReceiverID:            event.ReceiverID,
+			PaymentIdempotencyKey: event.IdempotencyKey,
+			TraceID:               event.TraceID,
+			RequestID:             event.RequestID,
+			Amount:                event.Amount,
+			Currency:              event.Currency,
 		},
 		event.IdempotencyKey,
 		event.OfferID,
 		event.RequestID,
 		event.TraceID,
 	)
+
+	if err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "kafka_handle_payment_initiated_failed", logger.Fields{
+			"error": err.Error(),
+		})
+	}
+
+	return err
+}
+
+func (h *KafkaOfferHandler) HandlePaymentSuccess(
+	ctx context.Context,
+	payload kafka.Message,
+) error {
+	var event domain.PaymentSuccessEvent
+
+	if event.OfferID == nil || *event.OfferID == "" {
+		return nil
+	}
+	if err := json.Unmarshal(payload.Value, &event); err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "kafka_message_decode_failed", logger.Fields{
+			"topic":      payload.Topic,
+			"partition":  payload.Partition,
+			"offset":     payload.Offset,
+			"error_type": flowpayOfferErrors.ErrorTypeKafkaMessageDecoding,
+			"error":      err.Error(),
+		})
+		return err
+	}
+
+	ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)
+
+	_, err := h.offerService.RedeemOffer(
+		ctx,
+		offerRedeemDTO.OfferRedemptionRequestDTO{
+			AccountID:     event.SenderID,
+			PaymentID:     event.PaymentID,
+			ReservationID: event.ReservationID,
+		},
+		event.IdempotencyKey,
+		*event.OfferID,
+		event.RequestID,
+		event.TraceID,
+	)
+
+	if err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "kafka_handle_payment_success_failed", logger.Fields{
+			"error": err.Error(),
+		})
+	}
 
 	return err
 }

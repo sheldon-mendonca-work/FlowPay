@@ -8,6 +8,10 @@ type Payment struct {
 	SenderID       string
 	ReceiverID     string
 	Amount         int64
+	NetAmount      int64
+	OfferID        string
+	OfferType      string
+	OfferAmount    int64
 	Currency       string
 	Status         string
 	CreatedAt      time.Time

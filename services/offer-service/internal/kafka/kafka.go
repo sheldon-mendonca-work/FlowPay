@@ -8,12 +8,11 @@ import (
 	"flowpay/offer-service/internal/domain"
 	flowpayOfferErrors "flowpay/offer-service/internal/errors"
 	"flowpay/pkg/observability/logger"
-	"flowpay/pkg/observability/tracing"
 
 	"github.com/segmentio/kafka-go"
 )
 
-type Handler func(ctx context.Context, event domain.PaymentInitiatedEvent) error
+type Handler func(ctx context.Context, event kafka.Message) error
 
 type KafkaConsumer struct {
 	reader  *kafka.Reader
@@ -57,58 +56,35 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 			"error_type": flowpayOfferErrors.ErrorTypeNone,
 		})
 
-		event, err := c.decodeMessage(msg.Value)
-		if err != nil {
-			logger.LogEvent(ctx, "ERROR", constants.ServiceName, "kafka_message_decode_failed", logger.Fields{
-				"topic":      msg.Topic,
-				"partition":  msg.Partition,
-				"offset":     msg.Offset,
-				"error_type": flowpayOfferErrors.ErrorTypeKafkaMessageDecoding,
-				"error":      err.Error(),
-			})
-			if err := c.commitMessage(ctx, msg); err != nil {
-				return err
-			}
-			continue
-		}
-
-		ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)
-
 		if c.handler != nil {
-			err = c.handler(ctx, event)
+			err = c.handler(ctx, msg)
 		}
 
 		if err != nil {
 			errorType := flowpayOfferErrors.ToOfferErrorType(err)
 			logger.LogEvent(ctx, "ERROR", constants.ServiceName, "offer_execution_failed", logger.Fields{
-				"payment_id":      event.ID,
-				"idempotency_key": event.IdempotencyKey,
-				"topic":           msg.Topic,
-				"partition":       msg.Partition,
-				"offset":          msg.Offset,
-				"error_type":      errorType,
-				"error":           err.Error(),
+				"topic":      msg.Topic,
+				"partition":  msg.Partition,
+				"offset":     msg.Offset,
+				"error_type": errorType,
+				"error":      err.Error(),
 			})
 			if shouldCommitOnHandlerError(err) {
 				if err := c.commitMessage(ctx, msg); err != nil {
 					return err
 				}
 				logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_execution_failed_committed", logger.Fields{
-					"payment_id":      event.ID,
-					"idempotency_key": event.IdempotencyKey,
-					"topic":           msg.Topic,
-					"partition":       msg.Partition,
-					"offset":          msg.Offset,
-					"error_type":      errorType,
+					"topic":      msg.Topic,
+					"partition":  msg.Partition,
+					"offset":     msg.Offset,
+					"error_type": errorType,
 				})
 			} else {
 				logger.LogEvent(ctx, "WARN", constants.ServiceName, "offer_execution_failed_retryable", logger.Fields{
-					"payment_id":      event.ID,
-					"idempotency_key": event.IdempotencyKey,
-					"topic":           msg.Topic,
-					"partition":       msg.Partition,
-					"offset":          msg.Offset,
-					"error_type":      errorType,
+					"topic":      msg.Topic,
+					"partition":  msg.Partition,
+					"offset":     msg.Offset,
+					"error_type": errorType,
 				})
 			}
 			continue
@@ -119,14 +95,10 @@ func (c *KafkaConsumer) Start(ctx context.Context) error {
 		}
 
 		logger.LogEvent(ctx, "INFO", constants.ServiceName, "offer_execution_succeeded", logger.Fields{
-			"payment_id":      event.ID,
-			"idempotency_key": event.IdempotencyKey,
-			"topic":           msg.Topic,
-			"partition":       msg.Partition,
-			"offset":          msg.Offset,
-			"trace_id":        event.TraceID,
-			"request_id":      event.RequestID,
-			"error_type":      flowpayOfferErrors.ErrorTypeNone,
+			"topic":      msg.Topic,
+			"partition":  msg.Partition,
+			"offset":     msg.Offset,
+			"error_type": flowpayOfferErrors.ErrorTypeNone,
 		})
 	}
 }

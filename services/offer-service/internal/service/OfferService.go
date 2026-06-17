@@ -42,6 +42,9 @@ type OfferEventsRepository interface {
 		event domain.OfferEventEntity,
 	) error
 }
+type AccountsRepository interface {
+	CreateNewAccountForOffer(ctx context.Context, tx *sql.Tx, account domain.Account) error
+}
 type OfferRedemptionIdempotencyRepository interface {
 	ClaimOrGet(ctx context.Context, idempotency domain.OfferRedemptionIdempotencyKeyEntity) (domain.OfferRedemptionIdempotencyKeyEntity, bool, error)
 	MarkFailed(
@@ -103,6 +106,12 @@ type OfferReservationsRepository interface {
 	GetReservationByID(ctx context.Context, tx *sql.Tx, reservationID string) (domain.OfferReservationEntity, error)
 	MarkReservationAsRedeemed(ctx context.Context, tx *sql.Tx, reservationID string) error
 }
+type OfferOutboxRepository interface {
+	InsertOfferOutboxEvent(ctx context.Context, tx *sql.Tx, offerOutboxEvent domain.OfferOutboxEvent) error
+	MarkPublished(ctx context.Context, tx *sql.Tx, eventID string, eventType string) error
+	MarkFailed(ctx context.Context, eventID string, errorCode string, errorText string, eventType string) error
+	MarkRetryableFailure(ctx context.Context, eventID string, errorCode string, errorText string) error
+}
 type UserRepository interface {
 	GetUsersByUserAndCompanyId(ctx context.Context, tx *sql.Tx, companyId string, userId string) (domain.UsersEntity, error)
 }
@@ -117,6 +126,8 @@ type OfferService struct {
 	offerReservationIdempotencyRepository OfferReservationIdempotencyRepository
 	offerRedemptionRepository             OfferRedemptionsRepository
 	offerReservationRepository            OfferReservationsRepository
+	offerOutboxRepository                 OfferOutboxRepository
+	accountRepository                     AccountsRepository
 	usersRepository                       UserRepository
 }
 
@@ -129,6 +140,8 @@ func NewOfferService(db *sql.DB, offerRepository OfferRepository,
 	userRepository UserRepository,
 	offerReservationIdempotencyRepository OfferReservationIdempotencyRepository,
 	offerRedemptionIdempotencyRepository OfferRedemptionIdempotencyRepository,
+	accountRepository AccountsRepository,
+	offerOutboxRepository OfferOutboxRepository,
 ) *OfferService {
 	return &OfferService{
 		db:                                    db,
@@ -141,6 +154,8 @@ func NewOfferService(db *sql.DB, offerRepository OfferRepository,
 		usersRepository:                       userRepository,
 		offerRedemptionIdempotencyRepository:  offerRedemptionIdempotencyRepository,
 		offerReservationIdempotencyRepository: offerReservationIdempotencyRepository,
+		offerOutboxRepository:                 offerOutboxRepository,
+		accountRepository:                     accountRepository,
 	}
 }
 
@@ -343,6 +358,11 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 		return offerCreateDTO.OfferCreationResponseDTO{}, err
 	}
 
+	promotionPoolAccountId, err := generateRandomId()
+	if err != nil {
+		return offerCreateDTO.OfferCreationResponseDTO{}, err
+	}
+
 	idempotencyPayload := domain.OfferIdempotencyKey{
 		IdempotencyKey: idempotencyKey,
 		RequestHash:    payloadHash,
@@ -494,24 +514,26 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 	}
 
 	newOfferItem := domain.OfferEntity{
-		ID:                    offerId,
-		OfferCode:             req.OfferCode,
-		OfferType:             req.OfferType,
-		OfferAmount:           req.OfferAmount,
-		OfferPercentage:       req.OfferPercentage,
-		MaxBenefitAmount:      req.MaxBenefitAmount,
-		MinimumPaymentAmount:  req.MinimumPaymentAmount,
-		MaximumPaymentAmount:  req.MaximumPaymentAmount,
-		MaxRedemptions:        req.MaxRedemptions,
-		MaxRedemptionsPerUser: req.MaxRedemptionsPerUser,
-		RedeemedCount:         0,
-		ReservedCount:         0,
-		IdempotencyKey:        idempotencyKey,
-		Status:                "DRAFT",
-		Version:               1,
-		CreatedBy:             req.CreatedBy,
-		StartTime:             req.StartTime,
-		EndTime:               req.EndTime,
+		ID:                     offerId,
+		OfferCode:              req.OfferCode,
+		OfferType:              req.OfferType,
+		OfferAmount:            req.OfferAmount,
+		OfferPercentage:        req.OfferPercentage,
+		MaxBenefitAmount:       req.MaxBenefitAmount,
+		MinimumPaymentAmount:   req.MinimumPaymentAmount,
+		MaximumPaymentAmount:   req.MaximumPaymentAmount,
+		MaxRedemptions:         req.MaxRedemptions,
+		MaxRedemptionsPerUser:  req.MaxRedemptionsPerUser,
+		RedeemedCount:          0,
+		ReservedCount:          0,
+		IdempotencyKey:         idempotencyKey,
+		Status:                 "DRAFT",
+		Version:                1,
+		PromotionPoolAccountId: promotionPoolAccountId,
+		CreatedBy:              req.CreatedBy,
+		BudgetAmount:           req.BudgetAmount,
+		StartTime:              req.StartTime,
+		EndTime:                req.EndTime,
 	}
 
 	// create offer
@@ -525,10 +547,11 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 	}
 
 	metadata := map[string]interface{}{
-		"offer_code": newOfferItem.OfferCode,
-		"offer_type": newOfferItem.OfferType,
-		"created_by": newOfferItem.CreatedBy,
-		"company_id": req.CompanyId,
+		"offer_code":                newOfferItem.OfferCode,
+		"offer_type":                newOfferItem.OfferType,
+		"created_by":                newOfferItem.CreatedBy,
+		"company_id":                req.CompanyId,
+		"promotion_pool_account_id": promotionPoolAccountId,
 	}
 
 	metadataBytes, _ := json.Marshal(metadata)
@@ -560,6 +583,24 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 		}
 
 		return rollbackTechnicalFailure("offer_creation", err)
+	}
+
+	promotionPoolAccount := domain.Account{
+		ID: promotionPoolAccountId,
+		AccountName: fmt.Sprintf(
+			"%s_%s_CASHBACK_POOL",
+			newOfferItem.CreatedBy,
+			newOfferItem.OfferCode,
+		),
+		AccountType:          "PROMOTION_POOL",
+		AllowNegativeBalance: true,
+		Balance:              *newOfferItem.BudgetAmount, // <- total campaign budget
+		Currency:             "INR",
+	}
+
+	err = r.accountRepository.CreateNewAccountForOffer(ctx, tx, promotionPoolAccount)
+	if err != nil {
+		return rollbackTechnicalFailure("promotional_account_creation", err)
 	}
 
 	response := offerCreateDTO.OfferCreationResponseDTO{
@@ -774,6 +815,67 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 		if markErr := s.offerReservationIdempotencyRepository.MarkFailed(tx, ctx, idempotencyKey, flowpayOfferErrors.ToOfferErrorType(err), err.Error(), ownerToken); markErr != nil {
 			return rollbackTechnicalFailure(step+"_mark_failed", markErr)
 		}
+
+		offerRejectedOutboxEvent := types.OfferRejectedEvent{
+			PaymentID: req.PaymentID,
+			AccountID: req.AccountID,
+			OfferID:   offerID,
+
+			SenderID:               req.SenderID,
+			ReceiverID:             req.ReceiverID,
+			PaymentIdempotencyKey:  req.PaymentIdempotencyKey,
+			PromotionPoolAccountId: req.PromotionPoolAccountId,
+			PaymentOwnerToken:      req.PaymentOwnerToken,
+			TraceID:                req.TraceID,
+			RequestID:              req.RequestID,
+			Amount:                 req.Amount,
+			Currency:               req.Currency,
+
+			ErrorCode: "OFFER_NOT_FOUND",
+			ErrorText: flowpayOfferErrors.ErrOfferNotFound.Error(),
+		}
+
+		outboxID, err := generateRandomId()
+		if err != nil {
+			return rollbackTechnicalFailure(
+				"offer_reserved_outbox_id",
+				err,
+			)
+		}
+
+		payloadBytes, err := json.Marshal(offerRejectedOutboxEvent)
+		if err != nil {
+			return rollbackTechnicalFailure(
+				"offer_reserved_payload",
+				err,
+			)
+		}
+
+		err = s.offerOutboxRepository.InsertOfferOutboxEvent(
+			ctx,
+			tx,
+			domain.OfferOutboxEvent{
+				ID:             outboxID,
+				AggregateType:  "OFFER",
+				AggregateID:    offerID,
+				EventType:      "OFFER_REJECTED",
+				EventVersion:   1,
+				IdempotencyKey: idempotencyKey,
+				Payload:        string(payloadBytes),
+				Status:         "PENDING",
+				TraceID:        traceID,
+				RequestID:      requestID,
+				RetryCount:     0,
+			},
+		)
+
+		if err != nil {
+			return rollbackTechnicalFailure(
+				"offer_reserved_outbox_insert",
+				err,
+			)
+		}
+
 		if commitErr := tx.Commit(); commitErr != nil {
 			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
 		}
@@ -784,6 +886,7 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 	offer, err := s.offerRepository.GetOfferByIDForUpdate(ctx, tx, offerID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+
 			return markFailedAndCommit(
 				"offer_lookup",
 				flowpayOfferErrors.ErrOfferNotFound,
@@ -887,6 +990,73 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 	}
 
 	logger.LogPlain(ctx, constants.ServiceName, "updated reservation idempotency entries offer_id = %s payment_id=%s account_id=%s", offerID, req.PaymentID, req.AccountID)
+
+	// create outbox Event
+	offerReservedOutboxEvent := types.OfferReservedEvent{
+		OfferID:       offerID,
+		ReservationID: reservationId,
+		PaymentID:     req.PaymentID,
+		AccountID:     req.AccountID,
+
+		SenderID:               req.SenderID,
+		ReceiverID:             req.ReceiverID,
+		Amount:                 req.Amount,
+		Currency:               req.Currency,
+		PaymentIdempotencyKey:  req.PaymentIdempotencyKey,
+		PromotionPoolAccountId: req.PromotionPoolAccountId,
+		PaymentOwnerToken:      req.PaymentOwnerToken,
+		OfferType:              offer.OfferType,
+		OfferAmount:            offer.OfferAmount,
+		OfferPercentage:        offer.OfferPercentage,
+		MaxBenefitAmount:       offer.MaxBenefitAmount,
+		MinimumPaymentAmount:   offer.MinimumPaymentAmount,
+		MaximumPaymentAmount:   offer.MaximumPaymentAmount,
+
+		IdempotencyKey: idempotencyKey,
+		TraceID:        req.TraceID,
+		RequestID:      req.RequestID,
+	}
+
+	payloadBytes, err := json.Marshal(offerReservedOutboxEvent)
+	if err != nil {
+		return rollbackTechnicalFailure(
+			"offer_reserved_payload",
+			err,
+		)
+	}
+
+	outboxID, err := generateRandomId()
+	if err != nil {
+		return rollbackTechnicalFailure(
+			"offer_reserved_outbox_id",
+			err,
+		)
+	}
+
+	err = s.offerOutboxRepository.InsertOfferOutboxEvent(
+		ctx,
+		tx,
+		domain.OfferOutboxEvent{
+			ID:             outboxID,
+			AggregateType:  "OFFER",
+			AggregateID:    offerID,
+			EventType:      "OFFER_RESERVED",
+			EventVersion:   1,
+			IdempotencyKey: idempotencyKey,
+			Payload:        string(payloadBytes),
+			Status:         "PENDING",
+			TraceID:        traceID,
+			RequestID:      requestID,
+			RetryCount:     0,
+		},
+	)
+
+	if err != nil {
+		return rollbackTechnicalFailure(
+			"offer_reserved_outbox_insert",
+			err,
+		)
+	}
 
 	// Commit all transactions
 	if err := tx.Commit(); err != nil {

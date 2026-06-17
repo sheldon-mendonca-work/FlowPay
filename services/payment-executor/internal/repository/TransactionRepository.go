@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"flowpay/payment-executor/internal/domain"
 	"fmt"
+	"strings"
 )
 
 type TransactionRepository struct {
@@ -15,46 +16,83 @@ func NewTransactionRepository(db *sql.DB) *TransactionRepository {
 	return &TransactionRepository{db: db}
 }
 
-func (r *TransactionRepository) CreateTransactionsForSenderAndReceiver(tx *sql.Tx, ctx context.Context, senderTransaction domain.Transaction, receiverTransaction domain.Transaction) error {
-	query :=
-		`
-		INSERT INTO transactions (
-			id,
-			payment_id,
-			account_id,
-			type,
-			amount,
-			currency,
-			status,
-			created_at,
-			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW()), ($8, $9, $10, $11, $12, $13, $14, NOW(), NOW());
-	`
+func (r *TransactionRepository) CreateTransactions(
+	tx *sql.Tx,
+	ctx context.Context,
+	transactions []domain.Transaction,
+) error {
 
-	res, err := tx.ExecContext(ctx, query,
-		senderTransaction.ID,
-		senderTransaction.PaymentID,
-		senderTransaction.AccountID,
-		senderTransaction.Type,
-		senderTransaction.Amount,
-		senderTransaction.Currency,
-		senderTransaction.Status,
-		receiverTransaction.ID,
-		receiverTransaction.PaymentID,
-		receiverTransaction.AccountID,
-		receiverTransaction.Type,
-		receiverTransaction.Amount,
-		receiverTransaction.Currency,
-		receiverTransaction.Status,
+	if len(transactions) == 0 {
+		return nil
+	}
+
+	var (
+		values []string
+		args   []any
 	)
 
+	for i, t := range transactions {
+		base := i*9 + 1
+
+		values = append(values,
+			fmt.Sprintf(
+				"($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,NOW(),NOW())",
+				base,
+				base+1,
+				base+2,
+				base+3,
+				base+4,
+				base+5,
+				base+6,
+				base+7,
+			),
+		)
+
+		args = append(args,
+			t.ID,
+			t.PaymentID,
+			t.AccountID,
+			t.Type,
+			t.TransactionCategory,
+			t.Amount,
+			t.Currency,
+			t.Status,
+		)
+	}
+
+	query := fmt.Sprintf(`
+        INSERT INTO transactions (
+            id,
+            payment_id,
+            account_id,
+            type,
+            transaction_category,
+            amount,
+            currency,
+            status,
+            created_at,
+            updated_at
+        )
+        VALUES %s
+    `, strings.Join(values, ","))
+
+	res, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 
-	rowsAffected, _ := res.RowsAffected()
-	if rowsAffected != 2 {
-		return fmt.Errorf("Transaction creation failed: expected 2 rows affected, but got %d", rowsAffected)
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
 	}
+
+	if rowsAffected != int64(len(transactions)) {
+		return fmt.Errorf(
+			"expected %d rows affected but got %d",
+			len(transactions),
+			rowsAffected,
+		)
+	}
+
 	return nil
 }

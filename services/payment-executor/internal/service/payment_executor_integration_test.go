@@ -198,12 +198,12 @@ func TestExecutePayment_RedeliveryAfterCommit_DoesNotDoubleApplyBalances(t *test
 
 	senderAccount, receiverAccount := seedAccountsAndIdempotency(t, db, event)
 
-	firstResponse, err := paymentExecutorService.ExecutePayment(context.Background(), event)
+	firstResponse, err := paymentExecutorService.ExecutePayment(context.Background(), event, nil)
 	if err != nil {
 		t.Fatalf("TestExecutePayment_RedeliveryAfterCommit_DoesNotDoubleApplyBalances: first execution failed: %v", err)
 	}
 
-	secondResponse, err := paymentExecutorService.ExecutePayment(context.Background(), event)
+	secondResponse, err := paymentExecutorService.ExecutePayment(context.Background(), event, nil)
 	if err != nil {
 		t.Fatalf("TestExecutePayment_RedeliveryAfterCommit_DoesNotDoubleApplyBalances: replay execution failed: %v", err)
 	}

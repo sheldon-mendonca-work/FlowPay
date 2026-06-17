@@ -38,9 +38,11 @@ func (r *OfferRepository) CreateOffer(ctx context.Context, tx *sql.Tx, offerItem
 			start_time,
 			end_time,
 			created_by,
+			promotion_pool_account_id,
+			budget_amount,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, NOW(), NOW())
 		 ON CONFLICT (id) DO NOTHING;
 	`
 	res, err := tx.ExecContext(ctx, query,
@@ -62,6 +64,8 @@ func (r *OfferRepository) CreateOffer(ctx context.Context, tx *sql.Tx, offerItem
 		offerItem.StartTime,
 		offerItem.EndTime,
 		offerItem.CreatedBy,
+		offerItem.PromotionPoolAccountId,
+		offerItem.BudgetAmount,
 	)
 
 	if err != nil {
@@ -96,6 +100,8 @@ func (r *OfferRepository) GetOfferByIDForUpdate(ctx context.Context, tx *sql.Tx,
 			start_time,
 			end_time,
 			created_by,
+			promotion_pool_account_id,
+			budget_amount,
 			created_at,
 			updated_at
 		FROM offers
@@ -124,6 +130,8 @@ func (r *OfferRepository) GetOfferByIDForUpdate(ctx context.Context, tx *sql.Tx,
 		&offer.StartTime,
 		&offer.EndTime,
 		&offer.CreatedBy,
+		&offer.PromotionPoolAccountId,
+		&offer.BudgetAmount,
 		&offer.CreatedAt,
 		&offer.UpdatedAt,
 	)

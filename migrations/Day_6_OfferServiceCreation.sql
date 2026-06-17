@@ -58,6 +58,8 @@ CREATE TABLE offers (
     end_time TIMESTAMP NOT NULL,
 
     created_by UUID NOT NULL,
+    promotion_pool_account_id UUID UNIQUE,
+    budget_amount BIGINT,
 
     created_at TIMESTAMP NOT NULL,
     updated_at TIMESTAMP NOT NULL,
@@ -72,13 +74,34 @@ CREATE TABLE offers (
 
     CONSTRAINT chk_redemption_limit
         CHECK (redeemed_count <= max_redemptions),
-    CONSTRAINT chk_offer_amount CHECK (
+  
+    CONSTRAINT chk_offer_percentage
+    CHECK (
+        offer_percentage IS NULL
+        OR
+        (offer_percentage > 0 AND offer_percentage <= 100)
+    ),
+    CONSTRAINT chk_offer_amount_positive
+    CHECK (
+        offer_amount IS NULL
+        OR
+        offer_amount > 0
+    ),
+    CHECK (
         (offer_amount IS NOT NULL AND offer_percentage IS NULL)
         OR
         (offer_amount IS NULL AND offer_percentage IS NOT NULL)
     ),
     CONSTRAINT chk_offer_window
-        CHECK (start_time < end_time)
+        CHECK (start_time < end_time),
+        CONSTRAINT fk_promotion_pool_account
+    FOREIGN KEY (promotion_pool_account_id)
+    REFERENCES accounts(id),
+    CONSTRAINT chk_budget_positive
+    CHECK (
+        budget_amount IS NULL
+        OR budget_amount > 0
+    )
 );
 
 CREATE TABLE companies (
@@ -344,3 +367,96 @@ ON payments(reservation_id);
 
 CREATE INDEX idx_payments_redemption_id
 ON payments(redemption_id);
+
+-- Instead of directly pushing events to kafka, we will create a outbox events table that will handle event publishing in kafka
+
+CREATE TABLE offer_outbox_events (
+    id UUID PRIMARY KEY,
+
+    aggregate_type TEXT NOT NULL,
+    aggregate_id TEXT NOT NULL,
+
+    event_type TEXT NOT NULL,
+    event_version INTEGER NOT NULL,
+
+    idempotency_key TEXT NOT NULL,
+
+    payload JSONB NOT NULL,
+
+    status TEXT NOT NULL CHECK (
+        status IN (
+            'PENDING',
+            'PROCESSING',
+            'PUBLISHED',
+            'FAILED'
+        )
+    ),
+
+    locked_until TIMESTAMP,
+    retry_count INT NOT NULL DEFAULT 0,
+
+    trace_id TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+
+    error_code TEXT,
+    error_message TEXT,
+
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    published_at TIMESTAMP
+);
+
+CREATE INDEX idx_offer_outbox_status_created_at
+ON offer_outbox_events(status, created_at);
+
+CREATE INDEX idx_offer_outbox_aggregate
+ON offer_outbox_events(aggregate_type, aggregate_id);
+
+CREATE INDEX idx_offer_outbox_idempotency_key
+ON offer_outbox_events(idempotency_key);
+
+-- handle payments table for offers
+ALTER TABLE payments
+ADD COLUMN net_amount BIGINT NOT NULL DEFAULT 0,
+ADD COLUMN offer_id UUID NULL,
+ADD COLUMN offer_type VARCHAR(50) NULL,
+ADD COLUMN offer_amount BIGINT NULL;
+
+UPDATE payments
+SET net_amount = amount
+WHERE net_amount = 0;
+
+ALTER TABLE payments
+ALTER COLUMN net_amount DROP DEFAULT;
+
+-- For transactions, we can have one of the following:
+-- PAYMENT
+-- CASHBACK
+-- REFUND
+-- REVERSAL
+-- FEE
+ALTER TABLE transactions
+ADD COLUMN transaction_category VARCHAR(50) NOT NULL DEFAULT 'PAYMENT' CHECK (
+    transaction_category IN (
+        'PAYMENT',
+        'CASHBACK',
+        'REFUND',
+        'REVERSAL',
+        'FEE'
+    )
+);
+
+ALTER TABLE accounts
+ADD COLUMN account_type TEXT NOT NULL DEFAULT 'USER'
+CHECK (
+    account_type IN (
+        'USER',
+        'SYSTEM',
+        'PROMOTION_POOL'
+    )
+);
+
+ALTER TABLE accounts
+DROP CONSTRAINT accounts_balance_check;
+ALTER TABLE accounts
+ADD COLUMN allow_negative_balance BOOLEAN NOT NULL DEFAULT FALSE;

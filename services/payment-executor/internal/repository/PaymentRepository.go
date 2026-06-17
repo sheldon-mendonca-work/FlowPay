@@ -24,10 +24,14 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 			receiver_id,
 			amount,
 			currency,
+			net_amount,
+			offer_id,
+			offer_type,
+			offer_amount,
 			status,
 			created_at,
 			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+		) VALUES ($1, $2, $3, $4, $5, $6, $7 $8, $9, $10, $11, NOW(), NOW())
 		 ON CONFLICT (id) DO NOTHING;
 	`
 
@@ -39,6 +43,10 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 		payment.ReceiverID,
 		payment.Amount,
 		payment.Currency,
+		payment.NetAmount,
+		payment.OfferID,
+		payment.OfferType,
+		payment.OfferAmount,
 		payment.Status,
 	)
 
