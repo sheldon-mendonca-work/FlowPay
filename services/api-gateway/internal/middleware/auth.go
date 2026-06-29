@@ -13,6 +13,7 @@ import (
 	responseTypes "flowpay/pkg/types"
 )
 
+
 type contextKey string
 
 const accountIDKey contextKey = "account_id"
@@ -67,26 +68,11 @@ func RequestAndTrace(serviceName string, next http.Handler) http.Handler {
 		requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
 		traceID := strings.TrimSpace(r.Header.Get("X-Trace-Id"))
 
-		if len(requestID) == 0 {
-			metrics.GatewayUnauthorizedTotal.WithLabelValues(serviceName, "missing_request_id").Inc()
-			logger.LogEvent(r.Context(), "WARN", serviceName, "gateway_request_missing_request_id", logger.Fields{
-				"http_method": r.Method,
-				"http_path":   r.URL.Path,
-				"reason":      "Request ID missing",
-			})
-			WriteError(w, http.StatusBadRequest, "Request ID missing")
-			return
+		if requestID == "" {
+			requestID = tracing.GenerateID("req")
 		}
-
-		if len(traceID) == 0 {
-			metrics.GatewayUnauthorizedTotal.WithLabelValues(serviceName, "missing_trace_id").Inc()
-			logger.LogEvent(r.Context(), "WARN", serviceName, "gateway_request_missing_trace_id", logger.Fields{
-				"http_method": r.Method,
-				"http_path":   r.URL.Path,
-				"reason":      "Trace ID missing",
-			})
-			WriteError(w, http.StatusBadRequest, "Trace ID missing")
-			return
+		if traceID == "" {
+			traceID = tracing.GenerateID("trace")
 		}
 
 		ctx := tracing.WithTraceAndRequestIDs(r.Context(), traceID, requestID)

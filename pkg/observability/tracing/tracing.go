@@ -37,6 +37,11 @@ func generateId(prefix string) string {
 	return prefix + "-" + hex.EncodeToString(buf)
 }
 
+// GenerateID creates a random prefixed identifier using the same format as trace and request IDs.
+func GenerateID(prefix string) string {
+	return generateId(prefix)
+}
+
 func getOrCreateHeaderId(r *http.Request, headerName string, prefix string) string {
 	if value := strings.TrimSpace(r.Header.Get(headerName)); value != "" {
 		return value

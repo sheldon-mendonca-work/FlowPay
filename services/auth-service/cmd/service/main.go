@@ -2,8 +2,11 @@ package main
 
 import (
 	"flowpay/auth-service/internal/api"
+	"flowpay/auth-service/internal/client"
+	"flowpay/auth-service/internal/config"
 	"flowpay/auth-service/internal/constants"
 	"flowpay/auth-service/internal/infra"
+	"flowpay/auth-service/internal/jwt"
 	"flowpay/auth-service/internal/repository"
 	"flowpay/auth-service/internal/service"
 	"flowpay/pkg/observability/metrics"
@@ -24,18 +27,22 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	metrics.InitAuthMetrics()
-	db := infra.InitDB()
 
+	cfg := config.Load()
+	db := infra.InitDB()
 	defer db.Close()
 
-	accountRepository := repository.NewAccountsRepository(db)
-	refreshTokenRepository := repository.NewRefreshTokenRepository(db)
 	credentialsRepository := repository.NewCredentialsRepository(db)
+	refreshTokenRepository := repository.NewRefreshTokenRepository(db)
+	accountClient := client.NewAccountServiceClient(cfg.AccountServiceURL)
+	jwtManager := jwt.NewManager(cfg.JWTSecret)
 
-	authService := service.NewAuthService(db,
-		accountRepository,
-		refreshTokenRepository,
+	authService := service.NewAuthService(
+		db,
 		credentialsRepository,
+		refreshTokenRepository,
+		accountClient,
+		jwtManager,
 	)
 
 	httpHandler := api.NewHandler(authService)
@@ -47,6 +54,7 @@ func main() {
 	mux.HandleFunc("/register", httpHandler.HandleAuthRegisterRoute)
 	mux.HandleFunc("/refresh", httpHandler.HandleAuthRefreshRoute)
 	mux.HandleFunc("/logout", httpHandler.HandleAuthLogoutRoute)
-	log.Println("Auth service running on :8007")
-	log.Fatal(http.ListenAndServe(":8007", tracing.TracingMiddleware(constants.ServiceName, mux)))
+
+	log.Printf("Auth service running on :%s", cfg.Port)
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

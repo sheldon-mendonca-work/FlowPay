@@ -1,6 +1,8 @@
 CREATE TABLE credentials (
     account_id UUID PRIMARY KEY,
 
+    email TEXT NOT NULL UNIQUE,
+
     password_hash TEXT NOT NULL,
 
     password_updated_at TIMESTAMP NOT NULL,

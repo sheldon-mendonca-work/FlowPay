@@ -101,7 +101,7 @@ func validateSenderAndReceiverAccounts(accounts map[string]domain.Account, req d
 	return nil
 }
 
-func logPaymentStepFailure(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string, step string, err error) {
+func logPaymentStepFailure(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string, step string, err error, start time.Time) {
 	logger.LogEvent(ctx, "ERROR", paymentServiceConstants.ServiceName, "payment_step_failed", logger.Fields{
 		"step":            step,
 		"idempotency_key": idempotencyKey,
@@ -111,6 +111,8 @@ func logPaymentStepFailure(ctx context.Context, req dto.PaymentRequestDTO, idemp
 		"currency":        req.Currency,
 		"error_type":      flowpayPaymentErrors.ToPaymentErrorType(err),
 		"error":           err.Error(),
+		"outcome":         "failed",
+		"duration_ms":     time.Since(start).Milliseconds(),
 	})
 }
 
@@ -257,6 +259,8 @@ func generateReceiverTransaction(payment domain.Payment) (domain.Transaction, er
 }
 
 func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string, traceId string, requestId string) (dto.PaymentResponseDTO, error) {
+	start := time.Now()
+
 	// Compute Request Hash
 	reqAsBytes, err := json.Marshal(req)
 	if err != nil {
@@ -289,7 +293,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	// Claim or get idempotency key
 	existingIdempotency, idempotencyClaimed, err := s.paymentIdempotencyRepository.ClaimOrGet(ctx, idempotencyPayload)
 	if err != nil {
-		logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_claim_or_get", err)
+		logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_claim_or_get", err, start)
 		return dto.PaymentResponseDTO{}, err
 	}
 
@@ -303,19 +307,21 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"amount":          req.Amount,
 				"currency":        req.Currency,
 				"error_type":      flowpayPaymentErrors.ErrorTypeIdempotencyMismatch,
+				"outcome":         "idempotency_mismatch",
+				"duration_ms":     time.Since(start).Milliseconds(),
 			})
 			return dto.PaymentResponseDTO{}, fmt.Errorf("%w: idempotency_key=%s", flowpayPaymentErrors.ErrIdempotencyMismatch, idempotencyKey)
 		}
 
 		if existingIdempotency.Status == "IN_PROGRESS" {
 			err := fmt.Errorf("%w: idempotency_key=%s", flowpayPaymentErrors.ErrIdempotencyInProgress, idempotencyKey)
-			logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_in_progress", err)
+			logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_in_progress", err, start)
 			return dto.PaymentResponseDTO{}, err
 		}
 
 		cachedResponse, err := cachedIdempotencyResult(existingIdempotency)
 		if err != nil {
-			logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_cached_result", err)
+			logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_cached_result", err, start)
 			return dto.PaymentResponseDTO{}, err
 		}
 
@@ -326,6 +332,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 			"payment_id":      cachedResponse.PaymentID,
 			"error_code":      existingIdempotency.ErrorCode,
 			"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+			"outcome":         "success",
+			"duration_ms":     time.Since(start).Milliseconds(),
 		})
 		logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "served cached idempotency result for idempotency_key=%s status=%s", idempotencyKey, existingIdempotency.Status)
 		return cachedResponse, nil
@@ -360,6 +368,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"amount":          req.Amount,
 				"currency":        req.Currency,
 				"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+				"outcome":         "rolled_back",
+				"duration_ms":     time.Since(start).Milliseconds(),
 			})
 		case rollbackErr != nil && rollbackErr != sql.ErrTxDone:
 			logger.LogEvent(ctx, "ERROR", paymentServiceConstants.ServiceName, "payment_tx_rollback_failed", logger.Fields{
@@ -371,6 +381,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"currency":        req.Currency,
 				"error_type":      flowpayPaymentErrors.ErrorTypeDBFailure,
 				"error":           rollbackErr.Error(),
+				"outcome":         "rollback_failed",
+				"duration_ms":     time.Since(start).Milliseconds(),
 			})
 		}
 	}()
@@ -378,7 +390,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	// Create Functions for rollback and markasfailed
 	rollbackTechnicalFailure := func(step string, err error) (dto.PaymentResponseDTO, error) {
 		rollbackDueToError = true
-		logPaymentStepFailure(ctx, req, idempotencyKey, step, err)
+		logPaymentStepFailure(ctx, req, idempotencyKey, step, err, start)
 
 		if rollbackErr := tx.Rollback(); rollbackErr != nil && rollbackErr != sql.ErrTxDone {
 			logger.LogEvent(ctx, "ERROR", paymentServiceConstants.ServiceName, "payment_tx_rollback_failed", logger.Fields{
@@ -391,6 +403,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"offer_id":        req.OfferId,
 				"error_type":      flowpayPaymentErrors.ErrorTypeDBFailure,
 				"error":           rollbackErr.Error(),
+				"outcome":         "rollback_failed",
+				"duration_ms":     time.Since(start).Milliseconds(),
 			})
 		} else {
 			logger.LogEvent(ctx, "WARN", paymentServiceConstants.ServiceName, "payment_tx_rolled_back", logger.Fields{
@@ -402,6 +416,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"currency":        req.Currency,
 				"offer_id":        req.OfferId,
 				"error_type":      flowpayPaymentErrors.ToPaymentErrorType(err),
+				"outcome":         "rolled_back",
+				"duration_ms":     time.Since(start).Milliseconds(),
 			})
 		}
 		txClosed = true
@@ -410,7 +426,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 
 	markFailedAndCommit := func(step string, err error) (dto.PaymentResponseDTO, error) {
 		rollbackDueToError = true
-		logPaymentStepFailure(ctx, req, idempotencyKey, step, err)
+		logPaymentStepFailure(ctx, req, idempotencyKey, step, err, start)
 		if markErr := s.paymentIdempotencyRepository.MarkFailed(tx, ctx, idempotencyKey, flowpayPaymentErrors.ToPaymentErrorType(err), err.Error(), ownerToken); markErr != nil {
 			return rollbackTechnicalFailure(step+"_mark_failed", markErr)
 		}
@@ -472,6 +488,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		"offer_id":             req.OfferId,
 		"retry_count":          paymentInitiatedEvent.RetryCount,
 		"error_type":           flowpayPaymentErrors.ErrorTypeNone,
+		"outcome":              "success",
+		"duration_ms":          time.Since(start).Milliseconds(),
 	})
 
 	err = s.outboxEventRepository.InsertOutboxEvent(tx, ctx, outboxEvent)
@@ -490,7 +508,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	// Commit all transactions
 	if err := tx.Commit(); err != nil {
 		rollbackDueToError = true
-		logPaymentStepFailure(ctx, req, idempotencyKey, "tx_commit", err)
+		logPaymentStepFailure(ctx, req, idempotencyKey, "tx_commit", err, start)
 		return dto.PaymentResponseDTO{}, err
 	}
 	txClosed = true
@@ -507,6 +525,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		"offer_id":        req.OfferId,
 		"retry_count":     paymentInitiatedEvent.RetryCount,
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
+		"outcome":         "success",
+		"duration_ms":     time.Since(start).Milliseconds(),
 	})
 	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "committed payment transaction payment_id=%s outboxEvent_id=%s idempotency_key=%s", paymentID, outboxEvent.ID, idempotencyKey)
 
