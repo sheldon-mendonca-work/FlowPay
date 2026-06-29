@@ -53,6 +53,75 @@ var UserCreateRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var DefaultAccountsGetRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "default_accounts_get_requests_total",
+		Help: "Total number of default accounts list requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var DefaultAccountsGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "default_accounts_get_request_duration_seconds",
+		Help:    "Default accounts list request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var DefaultUsersGetRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "default_users_get_requests_total",
+		Help: "Total number of default users list requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var DefaultUsersGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "default_users_get_request_duration_seconds",
+		Help:    "Default users list request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var DefaultCompaniesGetRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "default_companies_get_requests_total",
+		Help: "Total number of default companies list requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var DefaultCompaniesGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "default_companies_get_request_duration_seconds",
+		Help:    "Default companies list request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var DefaultListGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "default_list_get_request_duration_seconds",
+		Help:    "Default list (users/company toggle) request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var AccountsListRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "accounts_list_request_duration_seconds",
+		Help:    "Accounts list request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
 func InitAccountMetrics() {
 	prometheus.MustRegister(
 		AccountCreateRequestsTotal,
@@ -61,5 +130,13 @@ func InitAccountMetrics() {
 		CompanyCreateRequestDuration,
 		UserCreateRequestsTotal,
 		UserCreateRequestDuration,
+		DefaultAccountsGetRequestsTotal,
+		DefaultAccountsGetRequestDuration,
+		DefaultUsersGetRequestsTotal,
+		DefaultUsersGetRequestDuration,
+		DefaultCompaniesGetRequestsTotal,
+		DefaultCompaniesGetRequestDuration,
+		DefaultListGetRequestDuration,
+		AccountsListRequestDuration,
 	)
 }

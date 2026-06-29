@@ -8,6 +8,6 @@ type Config struct {
 
 func Load() Config {
 	return Config{
-		Port: utils.GetEnv("PORT", "8002"),
+		Port: utils.GetEnv("PORT", "8005"),
 	}
 }

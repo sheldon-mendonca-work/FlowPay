@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"flowpay/account-service/internal/domain"
+	"flowpay/account-service/internal/dto"
 )
 
 type AccountsRepository struct {
@@ -36,4 +37,39 @@ func (r *AccountsRepository) FindByID(ctx context.Context, id string) (*domain.A
 		return nil, err
 	}
 	return &a, nil
+}
+
+func (r *AccountsRepository) ListPaged(ctx context.Context, excludeAccountID, search string, page, pageSize int) ([]dto.AccountListItem, int, error) {
+	searchPattern := "%" + search + "%"
+	offset := page * pageSize
+
+	var total int
+	err := r.db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM accounts
+		WHERE account_type = 'USER' AND id != $1 AND account_name ILIKE $2
+	`, excludeAccountID, searchPattern).Scan(&total)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, account_name, currency FROM accounts
+		WHERE account_type = 'USER' AND id != $1 AND account_name ILIKE $2
+		ORDER BY account_name
+		LIMIT $3 OFFSET $4
+	`, excludeAccountID, searchPattern, pageSize, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	items := []dto.AccountListItem{}
+	for rows.Next() {
+		var item dto.AccountListItem
+		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.Currency); err != nil {
+			return nil, 0, err
+		}
+		items = append(items, item)
+	}
+	return items, total, rows.Err()
 }

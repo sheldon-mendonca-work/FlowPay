@@ -30,10 +30,17 @@ type RefreshTokenRepository interface {
 	DeleteByHash(ctx context.Context, tokenHash string) error
 }
 
+type DefaultCredsRepository interface {
+	ExistsByAccountID(ctx context.Context, accountID string) (bool, error)
+	ExistsByAccountIDAsAccount(ctx context.Context, accountID string) (bool, error)
+	ExistsByAccountIDAsUser(ctx context.Context, accountID string) (bool, error)
+}
+
 type AuthService struct {
 	db               *sql.DB
 	credentialsRepo  CredentialsRepository
 	refreshTokenRepo RefreshTokenRepository
+	defaultCredsRepo DefaultCredsRepository
 	accountClient    *client.AccountServiceClient
 	jwtManager       *jwt.Manager
 }
@@ -42,6 +49,7 @@ func NewAuthService(
 	db *sql.DB,
 	credentialsRepo *repository.CredentialsRepository,
 	refreshTokenRepo *repository.RefreshTokenRepository,
+	defaultCredsRepo *repository.DefaultCredentialsRepository,
 	accountClient *client.AccountServiceClient,
 	jwtManager *jwt.Manager,
 ) *AuthService {
@@ -49,6 +57,7 @@ func NewAuthService(
 		db:               db,
 		credentialsRepo:  credentialsRepo,
 		refreshTokenRepo: refreshTokenRepo,
+		defaultCredsRepo: defaultCredsRepo,
 		accountClient:    accountClient,
 		jwtManager:       jwtManager,
 	}
@@ -210,6 +219,141 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken string) (*dto.AuthRe
 	return &dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: newRawToken,
+	}, nil
+}
+
+func (s *AuthService) DefaultLogin(ctx context.Context, accountID string) (*dto.AuthResponse, error) {
+	exists, err := s.defaultCredsRepo.ExistsByAccountID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, authErrors.ErrAuthenticationRequired
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rawToken, tokenID, err := generateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+		ID:        tokenID,
+		AccountID: accountID,
+		TokenHash: repository.HashRefreshToken(rawToken),
+		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	accessToken, err := s.jwtManager.GenerateAccessToken(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.AuthResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawToken,
+	}, nil
+}
+
+func (s *AuthService) DefaultLoginAccount(ctx context.Context, accountID, accountType string) (*dto.AuthResponse, error) {
+	exists, err := s.defaultCredsRepo.ExistsByAccountIDAsAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, authErrors.ErrAuthenticationRequired
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rawToken, tokenID, err := generateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+		ID:        tokenID,
+		AccountID: accountID,
+		TokenHash: repository.HashRefreshToken(rawToken),
+		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	accessToken, err := s.jwtManager.GenerateAccessToken(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.AuthResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawToken,
+	}, nil
+}
+
+func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountType string) (*dto.AuthResponse, error) {
+	exists, err := s.defaultCredsRepo.ExistsByAccountIDAsUser(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, authErrors.ErrAuthenticationRequired
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rawToken, tokenID, err := generateRefreshToken()
+	if err != nil {
+		return nil, err
+	}
+
+	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+		ID:        tokenID,
+		AccountID: accountID,
+		TokenHash: repository.HashRefreshToken(rawToken),
+		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	accessToken, err := s.jwtManager.GenerateAccessToken(accountID)
+	if err != nil {
+		return nil, err
+	}
+
+	return &dto.AuthResponse{
+		AccessToken:  accessToken,
+		RefreshToken: rawToken,
 	}, nil
 }
 

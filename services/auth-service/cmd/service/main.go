@@ -34,6 +34,7 @@ func main() {
 
 	credentialsRepository := repository.NewCredentialsRepository(db)
 	refreshTokenRepository := repository.NewRefreshTokenRepository(db)
+	defaultCredentialsRepository := repository.NewDefaultCredentialsRepository(db)
 	accountClient := client.NewAccountServiceClient(cfg.AccountServiceURL)
 	jwtManager := jwt.NewManager(cfg.JWTSecret)
 
@@ -41,6 +42,7 @@ func main() {
 		db,
 		credentialsRepository,
 		refreshTokenRepository,
+		defaultCredentialsRepository,
 		accountClient,
 		jwtManager,
 	)
@@ -50,10 +52,13 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
-	mux.HandleFunc("/login", httpHandler.HandleAuthLoginRoute)
-	mux.HandleFunc("/register", httpHandler.HandleAuthRegisterRoute)
-	mux.HandleFunc("/refresh", httpHandler.HandleAuthRefreshRoute)
-	mux.HandleFunc("/logout", httpHandler.HandleAuthLogoutRoute)
+	mux.HandleFunc("/auth/login", httpHandler.HandleAuthLoginRoute)
+	mux.HandleFunc("/auth/register", httpHandler.HandleAuthRegisterRoute)
+	mux.HandleFunc("/auth/refresh", httpHandler.HandleAuthRefreshRoute)
+	mux.HandleFunc("/auth/logout", httpHandler.HandleAuthLogoutRoute)
+	mux.HandleFunc("/auth/default-login", httpHandler.HandleAuthDefaultLoginRoute)
+	mux.HandleFunc("/auth/defaultLoginAccount", httpHandler.HandleAuthDefaultLoginAccountRoute)
+	mux.HandleFunc("/auth/defaultLoginUser", httpHandler.HandleAuthDefaultLoginUserRoute)
 
 	log.Printf("Auth service running on :%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))

@@ -33,12 +33,14 @@ func main() {
 	companyRepository := repository.NewCompanyRepository(db)
 	userRepository := repository.NewUserRepository(db)
 	accountsRepository := repository.NewAccountsRepository(db)
+	defaultCredentialsRepository := repository.NewDefaultCredentialsRepository(db)
 
 	accountService := service.NewAccountService(
 		db,
 		companyRepository,
 		userRepository,
 		accountsRepository,
+		defaultCredentialsRepository,
 	)
 
 	httpHandler := api.NewHandler(accountService)
@@ -47,8 +49,13 @@ func main() {
 	mux.HandleFunc("/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/accounts", httpHandler.HandleCreateAccount)
-	mux.HandleFunc("/companies", httpHandler.HandleCreateCompany)
-	mux.HandleFunc("/users", httpHandler.HandleCreateUser)
+	mux.HandleFunc("/accounts/companies", httpHandler.HandleCreateCompany)
+	mux.HandleFunc("/accounts/users", httpHandler.HandleCreateUser)
+	mux.HandleFunc("/accounts/defaults/accounts", httpHandler.HandleGetDefaultAccounts)
+	mux.HandleFunc("/accounts/defaults/users", httpHandler.HandleGetDefaultUsers)
+	mux.HandleFunc("/accounts/defaults/companies", httpHandler.HandleGetDefaultCompanies)
+	mux.HandleFunc("/accounts/defaults/list", httpHandler.HandleGetDefaultList)
+	mux.HandleFunc("/accounts/list", httpHandler.HandleListUserAccounts)
 
 	log.Printf("Account service running on :%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))

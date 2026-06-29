@@ -48,3 +48,22 @@ type CreateUserResponse struct {
 	AccountID string  `json:"account_id"`
 	CompanyID *string `json:"company_id,omitempty"`
 }
+
+type ListAccountsRequest struct {
+	Search   string `json:"search"`
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
+}
+
+type AccountListItem struct {
+	AccountID   string `json:"account_id"`
+	AccountName string `json:"account_name"`
+	Currency    string `json:"currency"`
+}
+
+type ListAccountsResponse struct {
+	Accounts []AccountListItem `json:"accounts"`
+	Total    int               `json:"total"`
+	Page     int               `json:"page"`
+	PageSize int               `json:"page_size"`
+}

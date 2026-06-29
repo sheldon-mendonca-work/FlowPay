@@ -15,6 +15,7 @@ import (
 	"flowpay/payment-service/internal/service"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
+	responseTypes "flowpay/pkg/types"
 )
 
 type Handler struct {
@@ -28,8 +29,22 @@ func NewHandler(paymentService *service.PaymentService) *Handler {
 func WriteJSONError(w http.ResponseWriter, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error": message,
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: false,
+		Code:    status,
+		Message: message,
+		Data:    nil,
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: true,
+		Code:    status,
+		Message: "success",
+		Data:    v,
 	})
 }
 
@@ -224,9 +239,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (h *Handler) HandlePayment(w http.ResponseWriter, r *http.Request) {
@@ -346,7 +359,5 @@ func (h *Handler) HandlePaymentGetByIDMethod(w http.ResponseWriter, r *http.Requ
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusOK, resp)
 }

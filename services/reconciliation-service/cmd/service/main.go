@@ -62,6 +62,6 @@ func main() {
 	mux.HandleFunc("/reconciliation/transactions", handler.HandleTransactionChecks)
 	mux.HandleFunc("/reconciliation/transactions/{transaction_check_type}", handler.HandleIndividualTransactionCheck)
 
-	log.Println("Reconciliation service running on :8004")
-	log.Fatal(http.ListenAndServe(":8004", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Println("Reconciliation service running on :8013")
+	log.Fatal(http.ListenAndServe(":8013", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

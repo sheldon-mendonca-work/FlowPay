@@ -14,6 +14,7 @@ import (
 	"flowpay/auth-service/internal/service"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
+	responseTypes "flowpay/pkg/types"
 )
 
 type Handler struct {
@@ -27,17 +28,29 @@ func NewHandler(authService *service.AuthService) *Handler {
 func writeJSONError(w http.ResponseWriter, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: false,
+		Code:    status,
+		Message: message,
+		Data:    nil,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: true,
+		Code:    status,
+		Message: "success",
+		Data:    v,
+	})
 }
 
 func authErrorResponse(err error) (string, int) {
 	switch {
+	case errors.Is(err, authErrors.ErrAuthenticationRequired):
+		return authErrors.ErrAuthenticationRequired.Error(), http.StatusUnauthorized
 	case errors.Is(err, authErrors.ErrInvalidCredentials):
 		return authErrors.ErrInvalidCredentials.Error(), http.StatusUnauthorized
 	case errors.Is(err, authErrors.ErrEmailAlreadyExists):
@@ -59,6 +72,8 @@ func authOutcome(status int, err error) string {
 	switch {
 	case err == nil:
 		return "success"
+	case errors.Is(err, authErrors.ErrAuthenticationRequired):
+		return "authentication_required"
 	case errors.Is(err, authErrors.ErrInvalidCredentials):
 		return "invalid_credentials"
 	case errors.Is(err, authErrors.ErrEmailAlreadyExists):
@@ -384,6 +399,312 @@ func (h *Handler) HandleAuthRefreshRoute(w http.ResponseWriter, r *http.Request)
 		"http_path":        r.URL.Path,
 		"http_status":      http.StatusOK,
 		"http_status_text": http.StatusText(http.StatusOK),
+		"outcome":          "success",
+		"error_type":       authErrors.ErrorTypeNone,
+		"duration_ms":      time.Since(start).Milliseconds(),
+	})
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleAuthDefaultLoginRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  authErrors.ToAuthErrorType(authErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, authErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := authOutcome(statusCode, serviceErr)
+		metrics.AuthDefaultLoginRequestsTotal.WithLabelValues(authConstants.ServiceName, outcome).Inc()
+		metrics.AuthDefaultLoginRequestDuration.WithLabelValues(authConstants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	accountID := strings.TrimSpace(r.URL.Query().Get("account_id"))
+	if accountID == "" {
+		statusCode = http.StatusBadRequest
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "validation_error",
+			"error_type":  authErrors.ErrorTypeValidationError,
+			"error":       "account_id is required",
+		})
+		writeJSONError(w, "account_id is required", http.StatusBadRequest)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", authConstants.ServiceName, "auth_default_login_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"account_id":  accountID,
+		"error_type":  authErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.authService.DefaultLogin(ctx, accountID)
+	if err != nil {
+		message, status := authErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", authConstants.ServiceName, "auth_default_login_failed", logger.Fields{
+			"http_method":      r.Method,
+			"http_path":        r.URL.Path,
+			"http_status":      status,
+			"http_status_text": http.StatusText(status),
+			"account_id":       accountID,
+			"outcome":          authOutcome(status, err),
+			"error_type":       authErrors.ToAuthErrorType(err),
+			"error":            err.Error(),
+			"duration_ms":      time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", authConstants.ServiceName, "auth_default_login_completed", logger.Fields{
+		"http_method":      r.Method,
+		"http_path":        r.URL.Path,
+		"http_status":      http.StatusOK,
+		"http_status_text": http.StatusText(http.StatusOK),
+		"account_id":       accountID,
+		"outcome":          "success",
+		"error_type":       authErrors.ErrorTypeNone,
+		"duration_ms":      time.Since(start).Milliseconds(),
+	})
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleAuthDefaultLoginAccountRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_account_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  authErrors.ToAuthErrorType(authErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, authErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req dto.DefaultLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_account_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusBadRequest,
+			"outcome":     "invalid_json",
+			"error_type":  authErrors.ToAuthErrorType(authErrors.ErrInvalidRequestBody),
+			"error":       err.Error(),
+		})
+		writeJSONError(w, authErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	accountID := strings.TrimSpace(req.AccountID)
+	accountType := strings.TrimSpace(req.AccountType)
+
+	if accountID == "" {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_account_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusBadRequest,
+			"outcome":     "validation_error",
+			"error_type":  authErrors.ErrorTypeValidationError,
+			"error":       authErrors.ErrAccountIDRequired.Error(),
+		})
+		writeJSONError(w, authErrors.ErrAccountIDRequired.Error(), http.StatusBadRequest)
+		return
+	}
+	if accountType == "" {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_account_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusBadRequest,
+			"outcome":     "validation_error",
+			"error_type":  authErrors.ErrorTypeValidationError,
+			"error":       authErrors.ErrAccountTypeRequired.Error(),
+		})
+		writeJSONError(w, authErrors.ErrAccountTypeRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := authOutcome(statusCode, serviceErr)
+		metrics.AuthDefaultLoginAccountRequestsTotal.WithLabelValues(authConstants.ServiceName, outcome, accountType).Inc()
+		metrics.AuthDefaultLoginAccountRequestDuration.WithLabelValues(authConstants.ServiceName, outcome, accountType).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", authConstants.ServiceName, "auth_default_login_account_started", logger.Fields{
+		"http_method":  r.Method,
+		"http_path":    r.URL.Path,
+		"account_id":   accountID,
+		"account_type": accountType,
+		"error_type":   authErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.authService.DefaultLoginAccount(ctx, accountID, accountType)
+	if err != nil {
+		message, status := authErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", authConstants.ServiceName, "auth_default_login_account_failed", logger.Fields{
+			"http_method":      r.Method,
+			"http_path":        r.URL.Path,
+			"http_status":      status,
+			"http_status_text": http.StatusText(status),
+			"account_id":       accountID,
+			"account_type":     accountType,
+			"outcome":          authOutcome(status, err),
+			"error_type":       authErrors.ToAuthErrorType(err),
+			"error":            err.Error(),
+			"duration_ms":      time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", authConstants.ServiceName, "auth_default_login_account_completed", logger.Fields{
+		"http_method":      r.Method,
+		"http_path":        r.URL.Path,
+		"http_status":      http.StatusOK,
+		"http_status_text": http.StatusText(http.StatusOK),
+		"account_id":       accountID,
+		"account_type":     accountType,
+		"outcome":          "success",
+		"error_type":       authErrors.ErrorTypeNone,
+		"duration_ms":      time.Since(start).Milliseconds(),
+	})
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleAuthDefaultLoginUserRoute(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_user_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  authErrors.ToAuthErrorType(authErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, authErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req dto.DefaultLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_user_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusBadRequest,
+			"outcome":     "invalid_json",
+			"error_type":  authErrors.ToAuthErrorType(authErrors.ErrInvalidRequestBody),
+			"error":       err.Error(),
+		})
+		writeJSONError(w, authErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	accountID := strings.TrimSpace(req.AccountID)
+	accountType := strings.TrimSpace(req.AccountType)
+
+	if accountID == "" {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_user_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusBadRequest,
+			"outcome":     "validation_error",
+			"error_type":  authErrors.ErrorTypeValidationError,
+			"error":       authErrors.ErrAccountIDRequired.Error(),
+		})
+		writeJSONError(w, authErrors.ErrAccountIDRequired.Error(), http.StatusBadRequest)
+		return
+	}
+	if accountType == "" {
+		logger.LogEvent(r.Context(), "WARN", authConstants.ServiceName, "auth_default_login_user_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusBadRequest,
+			"outcome":     "validation_error",
+			"error_type":  authErrors.ErrorTypeValidationError,
+			"error":       authErrors.ErrAccountTypeRequired.Error(),
+		})
+		writeJSONError(w, authErrors.ErrAccountTypeRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := authOutcome(statusCode, serviceErr)
+		metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(authConstants.ServiceName, outcome, accountType).Inc()
+		metrics.AuthDefaultLoginUserRequestDuration.WithLabelValues(authConstants.ServiceName, outcome, accountType).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", authConstants.ServiceName, "auth_default_login_user_started", logger.Fields{
+		"http_method":  r.Method,
+		"http_path":    r.URL.Path,
+		"account_id":   accountID,
+		"account_type": accountType,
+		"error_type":   authErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.authService.DefaultLoginUser(ctx, accountID, accountType)
+	if err != nil {
+		message, status := authErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", authConstants.ServiceName, "auth_default_login_user_failed", logger.Fields{
+			"http_method":      r.Method,
+			"http_path":        r.URL.Path,
+			"http_status":      status,
+			"http_status_text": http.StatusText(status),
+			"account_id":       accountID,
+			"account_type":     accountType,
+			"outcome":          authOutcome(status, err),
+			"error_type":       authErrors.ToAuthErrorType(err),
+			"error":            err.Error(),
+			"duration_ms":      time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", authConstants.ServiceName, "auth_default_login_user_completed", logger.Fields{
+		"http_method":      r.Method,
+		"http_path":        r.URL.Path,
+		"http_status":      http.StatusOK,
+		"http_status_text": http.StatusText(http.StatusOK),
+		"account_id":       accountID,
+		"account_type":     accountType,
 		"outcome":          "success",
 		"error_type":       authErrors.ErrorTypeNone,
 		"duration_ms":      time.Since(start).Milliseconds(),

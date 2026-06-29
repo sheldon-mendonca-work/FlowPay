@@ -20,9 +20,10 @@ func main() {
 	metrics.InitGatewayMetrics()
 
 	paymentProxy := proxy.New(cfg.PaymentServiceURL, constants.ServiceName)
+	authProxy := proxy.New(cfg.AuthServiceURL, constants.ServiceName)
+	accountProxy := proxy.New(cfg.AccountServiceURL, constants.ServiceName)
 	offerProxy := proxy.New(cfg.OfferServiceURL, constants.ServiceName)
 	reconciliationProxy := proxy.New(cfg.ReconciliationServiceURL, constants.ServiceName)
-	authProxy := proxy.New(cfg.PaymentServiceURL, constants.ServiceName)
 
 	withJWT := func(h http.Handler) http.Handler {
 		return middleware.JWTAuth(cfg.JWTSecret, constants.ServiceName, h)
@@ -39,6 +40,14 @@ func main() {
 	mux.Handle("/auth", authProxy)
 	mux.Handle("/auth/", authProxy)
 
+	// account service - no JWT required
+	mux.Handle("/accounts", accountProxy)
+	mux.Handle("/accounts/", accountProxy)
+
+	// account service - JWT required
+	mux.Handle("/accounts/defaults/list", withJWT(accountProxy))
+	mux.Handle("/accounts/list", withJWT(accountProxy))
+
 	// payment-service — JWT required
 	mux.Handle("/payments", withJWT(paymentProxy))
 	mux.Handle("/payments/", withJWT(paymentProxy))
@@ -50,6 +59,8 @@ func main() {
 	// reconciliation-service — internal, no JWT
 	mux.Handle("/reconciliation/", reconciliationProxy)
 
+	corsMiddleware := middleware.CORS(cfg.AllowedOrigins)
+
 	log.Printf("API gateway running on :%s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, corsMiddleware(tracing.TracingMiddleware(constants.ServiceName, mux))))
 }

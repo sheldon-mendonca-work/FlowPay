@@ -14,10 +14,11 @@ import (
 )
 
 type AccountService struct {
-	db          *sql.DB
-	companyRepo *repository.CompanyRepository
-	userRepo    *repository.UserRepository
-	accountRepo *repository.AccountsRepository
+	db               *sql.DB
+	companyRepo      *repository.CompanyRepository
+	userRepo         *repository.UserRepository
+	accountRepo      *repository.AccountsRepository
+	defaultCredsRepo *repository.DefaultCredentialsRepository
 }
 
 func NewAccountService(
@@ -25,12 +26,14 @@ func NewAccountService(
 	companyRepo *repository.CompanyRepository,
 	userRepo *repository.UserRepository,
 	accountRepo *repository.AccountsRepository,
+	defaultCredsRepo *repository.DefaultCredentialsRepository,
 ) *AccountService {
 	return &AccountService{
-		db:          db,
-		companyRepo: companyRepo,
-		userRepo:    userRepo,
-		accountRepo: accountRepo,
+		db:               db,
+		companyRepo:      companyRepo,
+		userRepo:         userRepo,
+		accountRepo:      accountRepo,
+		defaultCredsRepo: defaultCredsRepo,
 	}
 }
 
@@ -254,6 +257,64 @@ func validateCreateUserRequest(req dto.CreateUserRequest) error {
 		return accountErrors.ErrBusinessNameRequired
 	}
 	return nil
+}
+
+func (s *AccountService) GetDefaultList(ctx context.Context, callerAccountID, listType string) (*dto.DefaultListResponse, error) {
+	resp := &dto.DefaultListResponse{Type: listType}
+	switch listType {
+	case "users":
+		users, err := s.defaultCredsRepo.ListUsersExcluding(ctx, callerAccountID)
+		if err != nil {
+			return nil, err
+		}
+		resp.Users = users
+	case "company":
+		accounts, err := s.defaultCredsRepo.ListSystemAccounts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resp.Accounts = accounts
+	default:
+		return nil, accountErrors.ErrInvalidListType
+	}
+	return resp, nil
+}
+
+func (s *AccountService) ListUserAccounts(ctx context.Context, callerAccountID, search string, page, pageSize int) (*dto.ListAccountsResponse, error) {
+	accounts, total, err := s.accountRepo.ListPaged(ctx, callerAccountID, search, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ListAccountsResponse{
+		Accounts: accounts,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+func (s *AccountService) GetDefaultAccounts(ctx context.Context) (*dto.ListDefaultAccountsResponse, error) {
+	items, err := s.defaultCredsRepo.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ListDefaultAccountsResponse{Accounts: items}, nil
+}
+
+func (s *AccountService) GetDefaultUsers(ctx context.Context) (*dto.ListDefaultUsersResponse, error) {
+	items, err := s.defaultCredsRepo.ListUsers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ListDefaultUsersResponse{Users: items}, nil
+}
+
+func (s *AccountService) GetDefaultCompanies(ctx context.Context) (*dto.ListDefaultCompaniesResponse, error) {
+	items, err := s.defaultCredsRepo.ListCompanies(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.ListDefaultCompaniesResponse{Companies: items}, nil
 }
 
 func generateID() (string, error) {

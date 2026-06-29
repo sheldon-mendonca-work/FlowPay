@@ -9,6 +9,7 @@ import (
 
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
+	responseTypes "flowpay/pkg/types"
 	"flowpay/reconciliation-service/internal/constants"
 	"flowpay/reconciliation-service/internal/dto"
 	flowpayReconciliationErrors "flowpay/reconciliation-service/internal/errors"
@@ -26,8 +27,22 @@ func NewHandler(reconciliationService *service.ReconciliationService) *Handler {
 func WriteJSONError(w http.ResponseWriter, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error": message,
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: false,
+		Code:    status,
+		Message: message,
+		Data:    nil,
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: true,
+		Code:    status,
+		Message: "success",
+		Data:    v,
 	})
 }
 
@@ -158,11 +173,7 @@ func (h *Handler) HandleReconciliationChecks(w http.ResponseWriter,
 		"duration_ms":      response.ExecutionTimeMs,
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		WriteJSONError(w, flowpayReconciliationErrors.ErrReconciliationCheckFailed.Error(), http.StatusInternalServerError)
-	}
+	writeJSON(w, http.StatusOK, response)
 
 }
 

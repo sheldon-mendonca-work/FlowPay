@@ -23,9 +23,12 @@ func ToAuthErrorType(err error) string {
 		errors.Is(err, ErrCurrencyRequired),
 		errors.Is(err, ErrRefreshTokenRequired),
 		errors.Is(err, ErrMethodNotAllowed),
-		errors.Is(err, ErrInvalidRequestBody):
+		errors.Is(err, ErrInvalidRequestBody),
+		errors.Is(err, ErrAccountIDRequired),
+		errors.Is(err, ErrAccountTypeRequired):
 		return ErrorTypeValidationError
-	case errors.Is(err, ErrInvalidCredentials):
+	case errors.Is(err, ErrInvalidCredentials),
+		errors.Is(err, ErrAuthenticationRequired):
 		return ErrorTypeInvalidCredentials
 	case errors.Is(err, ErrEmailAlreadyExists):
 		return ErrorTypeConflict

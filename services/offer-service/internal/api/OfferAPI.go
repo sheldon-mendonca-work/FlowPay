@@ -13,6 +13,7 @@ import (
 	"flowpay/offer-service/internal/types"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
+	responseTypes "flowpay/pkg/types"
 	"net/http"
 	"strconv"
 	"strings"
@@ -76,8 +77,22 @@ func offerErrorResponse(err error) (string, int) {
 func WriteJSONError(w http.ResponseWriter, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{
-		"error": message,
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: false,
+		Code:    status,
+		Message: message,
+		Data:    nil,
+	})
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: true,
+		Code:    status,
+		Message: "success",
+		Data:    v,
 	})
 }
 
@@ -326,9 +341,7 @@ func (h *Handler) handleOfferRedeemPost(w http.ResponseWriter, r *http.Request) 
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func validateOfferReserveRequest(req offerReserveDTO.OfferReservationRequestDTO, idempotencyKey string, offerId string) error {
@@ -449,9 +462,7 @@ func (h *Handler) handleOfferReservePost(w http.ResponseWriter, r *http.Request)
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusAccepted, resp)
 }
 
 func (h *Handler) HandleOfferIdRedeemTransactions(w http.ResponseWriter, r *http.Request) {
@@ -574,7 +585,5 @@ func (h *Handler) handleOfferPostMethod(w http.ResponseWriter, r *http.Request) 
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	_ = json.NewEncoder(w).Encode(resp)
+	writeJSON(w, http.StatusAccepted, resp)
 }

@@ -78,6 +78,6 @@ func main() {
 	mux.HandleFunc("/offers", httpHandler.HandleOfferTransactions)
 	mux.HandleFunc("/offers/{offer_id}/reserve", httpHandler.HandleOfferIdReserveTransactions)
 	mux.HandleFunc("/offers/{offer_id}/redeem", httpHandler.HandleOfferIdRedeemTransactions)
-	log.Println("Offer service running on :8005")
-	log.Fatal(http.ListenAndServe(":8005", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Println("Offer service running on :8010")
+	log.Fatal(http.ListenAndServe(":8010", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

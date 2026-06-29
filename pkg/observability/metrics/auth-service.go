@@ -77,6 +77,57 @@ var AuthLogoutRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var AuthDefaultLoginRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "auth_default_login_requests_total",
+		Help: "Total number of default login requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var AuthDefaultLoginRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "auth_default_login_request_duration_seconds",
+		Help:    "Default login request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var AuthDefaultLoginAccountRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "auth_default_login_account_requests_total",
+		Help: "Total number of default account login requests by outcome and account_type.",
+	},
+	[]string{"service", "outcome", "account_type"},
+)
+
+var AuthDefaultLoginAccountRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "auth_default_login_account_request_duration_seconds",
+		Help:    "Default account login request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome", "account_type"},
+)
+
+var AuthDefaultLoginUserRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "auth_default_login_user_requests_total",
+		Help: "Total number of default user login requests by outcome and account_type.",
+	},
+	[]string{"service", "outcome", "account_type"},
+)
+
+var AuthDefaultLoginUserRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "auth_default_login_user_request_duration_seconds",
+		Help:    "Default user login request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome", "account_type"},
+)
+
 func InitAuthMetrics() {
 	prometheus.MustRegister(
 		AuthDurationMs,
@@ -89,5 +140,11 @@ func InitAuthMetrics() {
 		AuthLogoutRequestsTotal,
 		AuthLogoutRequestDuration,
 		OfferRedemptionRequestDuration,
+		AuthDefaultLoginRequestsTotal,
+		AuthDefaultLoginRequestDuration,
+		AuthDefaultLoginAccountRequestsTotal,
+		AuthDefaultLoginAccountRequestDuration,
+		AuthDefaultLoginUserRequestsTotal,
+		AuthDefaultLoginUserRequestDuration,
 	)
 }

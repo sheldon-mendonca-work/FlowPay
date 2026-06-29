@@ -18,6 +18,10 @@ var (
 	ErrInvalidRefreshToken  = errors.New("invalid refresh token")
 	ErrExpiredRefreshToken  = errors.New("refresh token has expired")
 
-	ErrMethodNotAllowed   = errors.New("method not allowed")
-	ErrInvalidRequestBody = errors.New("invalid request body")
+	ErrMethodNotAllowed      = errors.New("method not allowed")
+	ErrInvalidRequestBody    = errors.New("invalid request body")
+	ErrAuthenticationRequired = errors.New("authentication required")
+
+	ErrAccountIDRequired   = errors.New("account_id is required")
+	ErrAccountTypeRequired = errors.New("account_type is required")
 )

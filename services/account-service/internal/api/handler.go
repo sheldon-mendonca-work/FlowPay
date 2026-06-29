@@ -13,6 +13,7 @@ import (
 	"flowpay/account-service/internal/service"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
+	responseTypes "flowpay/pkg/types"
 )
 
 type Handler struct {
@@ -26,13 +27,23 @@ func NewHandler(accountService *service.AccountService) *Handler {
 func writeJSONError(w http.ResponseWriter, message string, status int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: false,
+		Code:    status,
+		Message: message,
+		Data:    nil,
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(responseTypes.APIResponse{
+		Success: true,
+		Code:    status,
+		Message: "success",
+		Data:    v,
+	})
 }
 
 func accountErrorResponse(err error) (string, int) {
@@ -235,6 +246,335 @@ func (h *Handler) HandleCreateCompany(w http.ResponseWriter, r *http.Request) {
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (h *Handler) HandleGetDefaultAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "default_accounts_get_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  accountErrors.ToAccountErrorType(accountErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.DefaultAccountsGetRequestsTotal.WithLabelValues(constants.ServiceName, outcome).Inc()
+		metrics.DefaultAccountsGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_accounts_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.accountService.GetDefaultAccounts(ctx)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "default_accounts_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "internal_error",
+			"error":       err.Error(),
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_accounts_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"count":       len(resp.Accounts),
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetDefaultUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "default_users_get_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  accountErrors.ToAccountErrorType(accountErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.DefaultUsersGetRequestsTotal.WithLabelValues(constants.ServiceName, outcome).Inc()
+		metrics.DefaultUsersGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_users_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.accountService.GetDefaultUsers(ctx)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "default_users_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "internal_error",
+			"error":       err.Error(),
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_users_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"count":       len(resp.Users),
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetDefaultCompanies(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "default_companies_get_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  accountErrors.ToAccountErrorType(accountErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.DefaultCompaniesGetRequestsTotal.WithLabelValues(constants.ServiceName, outcome).Inc()
+		metrics.DefaultCompaniesGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_companies_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.accountService.GetDefaultCompanies(ctx)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "default_companies_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "internal_error",
+			"error":       err.Error(),
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, "internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_companies_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"count":       len(resp.Companies),
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetDefaultList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "default_list_get_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  accountErrors.ToAccountErrorType(accountErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	callerAccountID := r.Header.Get("X-User-Id")
+	if callerAccountID == "" {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.DefaultListGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_list_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	var req dto.DefaultListRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		statusCode = http.StatusBadRequest
+		serviceErr = accountErrors.ErrInvalidRequestBody
+		writeJSONError(w, accountErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.accountService.GetDefaultList(ctx, callerAccountID, req.Type)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "default_list_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     accountOutcome(statusCode, err),
+			"error_type":  accountErrors.ToAccountErrorType(err),
+			"error":       err.Error(),
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "default_list_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"list_type":   req.Type,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleListUserAccounts(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "accounts_list_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  accountErrors.ToAccountErrorType(accountErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	callerAccountID := r.Header.Get("X-User-Id")
+	if callerAccountID == "" {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.AccountsListRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "accounts_list_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	var req dto.ListAccountsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		statusCode = http.StatusBadRequest
+		serviceErr = accountErrors.ErrInvalidRequestBody
+		writeJSONError(w, accountErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if req.PageSize == 0 {
+		req.PageSize = 50
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.accountService.ListUserAccounts(ctx, callerAccountID, req.Search, req.Page, req.PageSize)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "accounts_list_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     accountOutcome(statusCode, err),
+			"error":       err.Error(),
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "accounts_list_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"count":       len(resp.Accounts),
+		"total":       resp.Total,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (h *Handler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {

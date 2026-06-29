@@ -14,4 +14,5 @@ var (
 	ErrCompanyNotFound      = errors.New("company not found")
 	ErrMethodNotAllowed     = errors.New("method not allowed")
 	ErrInvalidRequestBody   = errors.New("invalid request body")
+	ErrInvalidListType      = errors.New("type must be users or company")
 )
