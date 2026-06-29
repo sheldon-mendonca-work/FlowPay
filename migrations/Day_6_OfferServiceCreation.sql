@@ -1,3 +1,56 @@
+
+
+CREATE TABLE companies (
+    id UUID PRIMARY KEY,
+    name VARCHAR(50) NOT NULL,
+    business_name VARCHAR(50) NOT NULL,
+    email_id VARCHAR(50),
+    phone_number VARCHAR(20),
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+    
+);
+
+CREATE TABLE users (
+    id UUID PRIMARY KEY,
+    account_id UUID NOT NULL,
+    company_id UUID,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN','USER')),
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT fk_account_id FOREIGN KEY(account_id) REFERENCES accounts(id),
+    CONSTRAINT fk_company_id FOREIGN KEY(company_id) REFERENCES companies(id)
+);
+
+CREATE TABLE offer_idempotency_keys (
+    idempotency_key VARCHAR(255) PRIMARY KEY,
+
+    offer_id UUID,
+
+    request_hash VARCHAR(255) NOT NULL,
+
+    status VARCHAR(20) NOT NULL CHECK (
+        status IN (
+            'IN_PROGRESS',
+            'COMPLETED',
+            'FAILED'
+        )
+    ),
+
+    response_body JSONB,
+    error_code TEXT,
+    error_message TEXT,
+    
+    owner_token VARCHAR(255),
+
+    locked_until TIMESTAMP NOT NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL
+);
+
 -- interpretation of offer_type, offer_value, max_benefit_amount:
 -- 1. ₹100 off
 
@@ -104,168 +157,6 @@ CREATE TABLE offers (
     )
 );
 
-CREATE TABLE companies (
-    id UUID PRIMARY KEY,
-    name VARCHAR(50) NOT NULL,
-    business_name VARCHAR(50) NOT NULL,
-    email_id VARCHAR(50),
-    phone_number VARCHAR(20),
-
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
-    
-);
-
-CREATE TABLE users (
-    id UUID PRIMARY KEY,
-    account_id UUID NOT NULL,
-    company_id UUID,
-    role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN','USER')),
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-
-    CONSTRAINT fk_account_id FOREIGN KEY(account_id) REFERENCES accounts(id),
-    CONSTRAINT fk_company_id FOREIGN KEY(company_id) REFERENCES companies(id)
-);
-
-CREATE TABLE offer_redemptions (
-    id UUID PRIMARY KEY,
-
-    offer_id UUID NOT NULL,
-    account_id UUID NOT NULL,
-    reservation_id UUID NOT NULL UNIQUE,
-    payment_id UUID,
-    idempotency_key VARCHAR(255) NOT NULL UNIQUE,
-
-    status VARCHAR(20) NOT NULL CHECK (
-        status IN (
-            'IN_PROGRESS',
-            'SUCCESS',
-            'FAILED',
-            'REFUNDED'
-        )
-    ),
-
-    refund_reason TEXT,
-
-    refunded_by_id UUID,
-    refunded_by_type VARCHAR(20) CHECK (
-        refunded_by_type IN (
-            'ACCOUNT',
-            'USER',
-            'SYSTEM'
-        )
-    ),
-
-    refund_source VARCHAR(30) CHECK (
-        refund_source IN (
-            'CUSTOMER_REQUEST',
-            'FRAUD',
-            'MANUAL_ADMIN',
-            'SYSTEM'
-        )
-    ),
-
-    created_at TIMESTAMP NOT NULL,
-    redeemed_at TIMESTAMP,
-    refunded_at TIMESTAMP,
-
-    CONSTRAINT fk_offer_id
-        FOREIGN KEY (offer_id) REFERENCES offers(id),
-    CONSTRAINT fk_reservation_id
-        FOREIGN KEY (offer_reservations_id) REFERENCES offer_reservations(id),
-
-    CONSTRAINT fk_account_id
-        FOREIGN KEY (account_id) REFERENCES accounts(id)
-);
-
-CREATE TABLE offer_events (
-    id UUID PRIMARY KEY,
-
-    offer_id UUID NOT NULL,
-
-    event_type VARCHAR(50) NOT NULL,
-
-    actor_id UUID,
-
-    actor_type VARCHAR(20) NOT NULL CHECK (
-        actor_type IN (
-            'USER',
-            'ACCOUNT',
-            'SYSTEM'
-        )
-    ),
-
-    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-
-    created_at TIMESTAMP NOT NULL,
-
-    CONSTRAINT fk_offer_event_offer
-        FOREIGN KEY (offer_id)
-        REFERENCES offers(id)
-);
-
-CREATE INDEX idx_offer_events_offer_id_created_at
-ON offer_events(offer_id, created_at DESC);
-
-CREATE TABLE offer_idempotency_keys (
-    idempotency_key VARCHAR(255) PRIMARY KEY,
-
-    offer_id UUID,
-
-    request_hash VARCHAR(255) NOT NULL,
-
-    status VARCHAR(20) NOT NULL CHECK (
-        status IN (
-            'IN_PROGRESS',
-            'COMPLETED',
-            'FAILED'
-        )
-    ),
-
-    response_body JSONB,
-    error_code TEXT,
-    error_message TEXT,
-    
-    owner_token VARCHAR(255),
-
-    locked_until TIMESTAMP NOT NULL,
-
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL
-);
-
-CREATE TABLE offer_reservation_idempotency_keys (
-    idempotency_key VARCHAR(255) PRIMARY KEY,
-
-    offer_id UUID,
-    reservation_id UUID,
-    payment_id UUID NOT NULL,
-    request_hash VARCHAR(255) NOT NULL,
-
-    status VARCHAR(20) NOT NULL CHECK (
-        status IN (
-            'IN_PROGRESS',
-            'COMPLETED',
-            'FAILED'
-        )
-    ),
-
-    response_body JSONB,
-    error_code TEXT,
-    error_message TEXT,
-    
-    owner_token VARCHAR(255),
-
-    locked_until TIMESTAMP NOT NULL,
-
-    created_at TIMESTAMP NOT NULL,
-    updated_at TIMESTAMP NOT NULL,
-    CONSTRAINT fk_offer_reservation_offer
-        FOREIGN KEY (offer_id)
-        REFERENCES offers(id)
-);
-
 CREATE TABLE offer_redemption_idempotency_keys (
     idempotency_key VARCHAR(255) PRIMARY KEY,
 
@@ -326,11 +217,122 @@ CREATE TABLE offer_reservations (
 
     CONSTRAINT fk_reservation_idempotency
         FOREIGN KEY (idempotency_key)
-        REFERENCES offer_redemption_idempotency_keys(id),
+        REFERENCES offer_redemption_idempotency_keys(idempotency_key),
 
     CONSTRAINT fk_offer_reservation_account
         FOREIGN KEY (account_id)
         REFERENCES accounts(id)
+);
+
+CREATE TABLE offer_redemptions (
+    id UUID PRIMARY KEY,
+
+    offer_id UUID NOT NULL,
+    account_id UUID NOT NULL,
+    reservation_id UUID NOT NULL UNIQUE,
+    payment_id UUID,
+    idempotency_key VARCHAR(255) NOT NULL UNIQUE,
+
+    status VARCHAR(20) NOT NULL CHECK (
+        status IN (
+            'IN_PROGRESS',
+            'SUCCESS',
+            'FAILED',
+            'REFUNDED'
+        )
+    ),
+
+    refund_reason TEXT,
+
+    refunded_by_id UUID,
+    refunded_by_type VARCHAR(20) CHECK (
+        refunded_by_type IN (
+            'ACCOUNT',
+            'USER',
+            'SYSTEM'
+        )
+    ),
+
+    refund_source VARCHAR(30) CHECK (
+        refund_source IN (
+            'CUSTOMER_REQUEST',
+            'FRAUD',
+            'MANUAL_ADMIN',
+            'SYSTEM'
+        )
+    ),
+
+    created_at TIMESTAMP NOT NULL,
+    redeemed_at TIMESTAMP,
+    refunded_at TIMESTAMP,
+
+    CONSTRAINT fk_offer_id
+        FOREIGN KEY (offer_id) REFERENCES offers(id),
+    CONSTRAINT fk_reservation_id
+        FOREIGN KEY (reservation_id) REFERENCES offer_reservations(id),
+
+    CONSTRAINT fk_account_id
+        FOREIGN KEY (account_id) REFERENCES accounts(id)
+);
+
+CREATE TABLE offer_events (
+    id UUID PRIMARY KEY,
+
+    offer_id UUID NOT NULL,
+
+    event_type VARCHAR(50) NOT NULL,
+
+    actor_id UUID,
+
+    actor_type VARCHAR(20) NOT NULL CHECK (
+        actor_type IN (
+            'USER',
+            'ACCOUNT',
+            'SYSTEM'
+        )
+    ),
+
+    metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+
+    created_at TIMESTAMP NOT NULL,
+
+    CONSTRAINT fk_offer_event_offer
+        FOREIGN KEY (offer_id)
+        REFERENCES offers(id)
+);
+
+CREATE INDEX idx_offer_events_offer_id_created_at
+ON offer_events(offer_id, created_at DESC);
+
+CREATE TABLE offer_reservation_idempotency_keys (
+    idempotency_key VARCHAR(255) PRIMARY KEY,
+
+    offer_id UUID,
+    reservation_id UUID,
+    payment_id UUID NOT NULL,
+    request_hash VARCHAR(255) NOT NULL,
+
+    status VARCHAR(20) NOT NULL CHECK (
+        status IN (
+            'IN_PROGRESS',
+            'COMPLETED',
+            'FAILED'
+        )
+    ),
+
+    response_body JSONB,
+    error_code TEXT,
+    error_message TEXT,
+    
+    owner_token VARCHAR(255),
+
+    locked_until TIMESTAMP NOT NULL,
+
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    CONSTRAINT fk_offer_reservation_offer
+        FOREIGN KEY (offer_id)
+        REFERENCES offers(id)
 );
 
 CREATE INDEX idx_offer_reservations_offer_status
@@ -418,8 +420,6 @@ ON offer_outbox_events(idempotency_key);
 -- handle payments table for offers
 ALTER TABLE payments
 ADD COLUMN net_amount BIGINT NOT NULL DEFAULT 0,
-ADD COLUMN offer_id UUID NULL,
-ADD COLUMN offer_type VARCHAR(50) NULL,
 ADD COLUMN offer_amount BIGINT NULL;
 
 UPDATE payments

@@ -2,6 +2,9 @@ go 1.26.3
 
 use (
 	./pkg
+	./services/api-gateway
+	./services/auth-service
+	./services/account-service
 	./services/offer-service
 	./services/payment-executor
 	./workers/offer-expiry-worker
