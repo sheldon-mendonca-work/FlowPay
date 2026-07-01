@@ -16,7 +16,7 @@ import (
 )
 
 func getHealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ok"))
+	w.Write([]byte("reconciliation service ok"))
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {

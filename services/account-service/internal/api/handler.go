@@ -52,6 +52,7 @@ func accountErrorResponse(err error) (string, int) {
 		errors.Is(err, accountErrors.ErrCompanyNotFound):
 		return err.Error(), http.StatusNotFound
 	case errors.Is(err, accountErrors.ErrAccountNameRequired),
+		errors.Is(err, accountErrors.ErrPaymentHandleRequired),
 		errors.Is(err, accountErrors.ErrCurrencyRequired),
 		errors.Is(err, accountErrors.ErrInvalidAccountType),
 		errors.Is(err, accountErrors.ErrCompanyNameRequired),
@@ -420,6 +421,72 @@ func (h *Handler) HandleGetDefaultCompanies(w http.ResponseWriter, r *http.Reque
 		"http_status": http.StatusOK,
 		"outcome":     "success",
 		"count":       len(resp.Companies),
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetUserInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "user_info_get_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": http.StatusMethodNotAllowed,
+			"outcome":     "method_not_allowed",
+			"error_type":  accountErrors.ToAccountErrorType(accountErrors.ErrMethodNotAllowed),
+		})
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	callerAccountID := r.Header.Get("X-User-Id")
+	if callerAccountID == "" {
+		writeJSONError(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.UserInfoGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "user_info_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.accountService.GetUserInfo(ctx, callerAccountID)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "user_info_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     accountOutcome(statusCode, err),
+			"error_type":  accountErrors.ToAccountErrorType(err),
+			"error":       err.Error(),
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "user_info_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"account_id":  callerAccountID,
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
 	writeJSON(w, http.StatusOK, resp)

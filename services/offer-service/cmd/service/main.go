@@ -18,7 +18,7 @@ import (
 )
 
 func getHealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ok"))
+	w.Write([]byte("offer service ok"))
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -73,11 +73,14 @@ func main() {
 	httpHandler := api.NewHandler(offerService)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", getHealthCheck)
-	mux.HandleFunc("/metrics", handleMetrics)
+	mux.HandleFunc("/offers/health", getHealthCheck)
+	mux.HandleFunc("/offers/metrics", handleMetrics)
 	mux.HandleFunc("/offers", httpHandler.HandleOfferTransactions)
+	mux.HandleFunc("/offers/list", httpHandler.HandleListOffers)
 	mux.HandleFunc("/offers/{offer_id}/reserve", httpHandler.HandleOfferIdReserveTransactions)
 	mux.HandleFunc("/offers/{offer_id}/redeem", httpHandler.HandleOfferIdRedeemTransactions)
+	mux.HandleFunc("/offers/companies", httpHandler.HandleGetCompanyOffers)
+	mux.HandleFunc("/offers/companies/summary", httpHandler.HandleGetCompanyOffersSummary)
 	log.Println("Offer service running on :8010")
 	log.Fatal(http.ListenAndServe(":8010", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

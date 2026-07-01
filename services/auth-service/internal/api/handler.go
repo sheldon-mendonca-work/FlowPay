@@ -106,6 +106,9 @@ func validateRegisterRequest(req dto.RegisterRequest) error {
 	if strings.TrimSpace(req.AccountName) == "" {
 		return authErrors.ErrNameRequired
 	}
+	if strings.TrimSpace(req.PaymentHandle) == "" {
+		return authErrors.ErrPaymentHandleRequired
+	}
 	if strings.TrimSpace(req.AccountType) == "" {
 		return authErrors.ErrTypeRequired
 	}

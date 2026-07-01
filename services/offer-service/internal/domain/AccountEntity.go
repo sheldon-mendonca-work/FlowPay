@@ -5,6 +5,7 @@ import "time"
 type Account struct {
 	ID                   string
 	AccountName          string
+	PaymentHandle        string
 	AccountType          string
 	Balance              int32
 	AllowNegativeBalance bool

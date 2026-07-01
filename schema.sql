@@ -29,6 +29,7 @@ SET default_table_access_method = heap;
 CREATE TABLE public.accounts (
     id uuid NOT NULL,
     account_name text NOT NULL,
+    payment_handle character varying(50) NOT NULL,
     balance bigint NOT NULL,
     currency text NOT NULL,
     created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP NOT NULL,
@@ -360,6 +361,14 @@ CREATE TABLE public.users (
 
 ALTER TABLE ONLY public.accounts
     ADD CONSTRAINT accounts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: accounts accounts_payment_handle_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.accounts
+    ADD CONSTRAINT accounts_payment_handle_key UNIQUE (payment_handle);
 
 
 --

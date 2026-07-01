@@ -16,7 +16,7 @@ import (
 )
 
 func getHealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ok"))
+	w.Write([]byte("payment service ok"))
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -39,10 +39,10 @@ func main() {
 	defer db.Close()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", getHealthCheck)
+	mux.HandleFunc("/payments/health", getHealthCheck)
+	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/payments", handler.HandlePayment)
 	mux.HandleFunc("/payments/{paymentID}", handler.HandlePaymentByID)
-	mux.HandleFunc("/metrics", handleMetrics)
 	log.Println("Payment service running on :8001")
 	log.Fatal(http.ListenAndServe(":8001", tracing.TracingMiddleware(paymentServiceConstants.ServiceName, mux)))
 }

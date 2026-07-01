@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	accessTokenTTL  = 15 * time.Minute
+	accessTokenTTL  = 200 * time.Minute
 	TokenTypeAccess = "access"
 )
 

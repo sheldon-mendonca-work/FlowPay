@@ -10,7 +10,7 @@ type OfferEntity struct {
 	OfferPercentage        *int16
 	MaxBenefitAmount       int64
 	MinimumPaymentAmount   int32
-	MaximumPaymentAmount   int32
+	MaximumPaymentAmount   *int32
 	MaxRedemptions         int32
 	MaxRedemptionsPerUser  int32
 	RedeemedCount          int32

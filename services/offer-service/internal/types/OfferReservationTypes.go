@@ -25,7 +25,7 @@ type OfferReservedEvent struct {
 	OfferPercentage      *int16 `json:"offer_percentage"`
 	MaxBenefitAmount     int64  `json:"max_benefit_amount"`
 	MinimumPaymentAmount int32  `json:"minimum_payment_amount"`
-	MaximumPaymentAmount int32  `json:"maximum_payment_amount"`
+	MaximumPaymentAmount *int32 `json:"maximum_payment_amount"`
 
 	IdempotencyKey string `json:"idempotency_key"`
 	TraceID        string `json:"trace_id"`

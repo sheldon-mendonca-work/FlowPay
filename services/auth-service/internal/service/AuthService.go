@@ -65,9 +65,10 @@ func NewAuthService(
 
 func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*dto.AuthResponse, error) {
 	accountResp, err := s.accountClient.CreateAccount(ctx, client.CreateAccountRequest{
-		AccountName: req.AccountName,
-		AccountType: req.AccountType,
-		Currency:    req.Currency,
+		AccountName:   req.AccountName,
+		PaymentHandle: req.PaymentHandle,
+		AccountType:   req.AccountType,
+		Currency:      req.Currency,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", authErrors.ErrAccountCreationFailed, err)

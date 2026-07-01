@@ -1,31 +1,31 @@
 package dto
 
 type DefaultAccountItem struct {
-	AccountID   string  `json:"account_id"`
-	AccountName string  `json:"account_name"`
-	Currency    string  `json:"currency"`
-	AccountType string  `json:"account_type"`
-	CompanyName *string `json:"company_name,omitempty"`
-	DisplayName string  `json:"display_name"`
-	Description string  `json:"description,omitempty"`
+	AccountID     string  `json:"account_id"`
+	AccountName   string  `json:"account_name"`
+	PaymentHandle string  `json:"payment_handle"`
+	Currency      string  `json:"currency"`
+	AccountType   string  `json:"account_type"`
+	CompanyName   *string `json:"company_name,omitempty"`
+	Description   string  `json:"description,omitempty"`
 }
 
 type DefaultUserItem struct {
-	UserID      string  `json:"user_id"`
-	AccountID   string  `json:"account_id"`
-	CompanyID   *string `json:"company_id,omitempty"`
-	Role        string  `json:"role"`
-	DisplayName string  `json:"display_name"`
-	Description string  `json:"description,omitempty"`
+	UserID        string  `json:"user_id"`
+	AccountID     string  `json:"account_id"`
+	PaymentHandle string  `json:"payment_handle"`
+	CompanyID     *string `json:"company_id,omitempty"`
+	Role          string  `json:"role"`
+	Description   string  `json:"description,omitempty"`
 }
 
 type DefaultCompanyItem struct {
-	CompanyID    string `json:"company_id"`
-	Name         string `json:"name"`
-	BusinessName string `json:"business_name"`
-	AccountID    string `json:"account_id"`
-	DisplayName  string `json:"display_name"`
-	Description  string `json:"description,omitempty"`
+	CompanyID     string `json:"company_id"`
+	Name          string `json:"name"`
+	BusinessName  string `json:"business_name"`
+	AccountID     string `json:"account_id"`
+	PaymentHandle string `json:"payment_handle"`
+	Description   string `json:"description,omitempty"`
 }
 
 type ListDefaultAccountsResponse struct {
@@ -41,11 +41,11 @@ type ListDefaultCompaniesResponse struct {
 }
 
 type DefaultSystemAccountItem struct {
-	AccountID   string `json:"account_id"`
-	AccountName string `json:"account_name"`
-	AccountType string `json:"account_type"`
-	DisplayName string `json:"display_name"`
-	Description string `json:"description,omitempty"`
+	AccountID     string `json:"account_id"`
+	AccountName   string `json:"account_name"`
+	PaymentHandle string `json:"payment_handle"`
+	AccountType   string `json:"account_type"`
+	Description   string `json:"description,omitempty"`
 }
 
 type DefaultListRequest struct {
@@ -53,7 +53,7 @@ type DefaultListRequest struct {
 }
 
 type DefaultListResponse struct {
-	Type     string                     `json:"type"`
-	Users    []DefaultUserItem          `json:"users,omitempty"`
-	Accounts []DefaultSystemAccountItem `json:"accounts,omitempty"`
+	Type           string                     `json:"type"`
+	Accounts       []DefaultAccountItem       `json:"accounts,omitempty"`
+	SystemAccounts []DefaultSystemAccountItem `json:"system_accounts,omitempty"`
 }

@@ -16,7 +16,7 @@ import (
 )
 
 func getHealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ok"))
+	w.Write([]byte("account service ok"))
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +46,7 @@ func main() {
 	httpHandler := api.NewHandler(accountService)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", getHealthCheck)
+	mux.HandleFunc("/accounts/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/accounts", httpHandler.HandleCreateAccount)
 	mux.HandleFunc("/accounts/companies", httpHandler.HandleCreateCompany)
@@ -56,6 +56,7 @@ func main() {
 	mux.HandleFunc("/accounts/defaults/companies", httpHandler.HandleGetDefaultCompanies)
 	mux.HandleFunc("/accounts/defaults/list", httpHandler.HandleGetDefaultList)
 	mux.HandleFunc("/accounts/list", httpHandler.HandleListUserAccounts)
+	mux.HandleFunc("/accounts/userinfo", httpHandler.HandleGetUserInfo)
 
 	log.Printf("Account service running on :%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))

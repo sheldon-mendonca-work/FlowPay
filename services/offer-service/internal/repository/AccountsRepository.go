@@ -21,6 +21,7 @@ func (r *AccountsRepository) CreateNewAccountForOffer(ctx context.Context, tx *s
 		INSERT INTO accounts (
 			id,
 			account_name,
+			payment_handle,
 			balance,
 			currency,
 			account_type,
@@ -28,14 +29,14 @@ func (r *AccountsRepository) CreateNewAccountForOffer(ctx context.Context, tx *s
 			created_at,
 			updated_at
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-		FOR UPDATE;
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW());
 	`
 
 	_, err := tx.ExecContext(ctx,
 		query,
 		account.ID,
 		account.AccountName,
+		account.PaymentHandle,
 		account.Balance,
 		account.Currency,
 		account.AccountType,

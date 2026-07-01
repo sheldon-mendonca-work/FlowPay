@@ -1,9 +1,10 @@
 package dto
 
 type CreateAccountRequest struct {
-	AccountName string `json:"account_name"`
-	AccountType string `json:"account_type"`
-	Currency    string `json:"currency"`
+	AccountName   string `json:"account_name"`
+	PaymentHandle string `json:"payment_handle"`
+	AccountType   string `json:"account_type"`
+	Currency      string `json:"currency"`
 }
 
 type CreateAccountResponse struct {
@@ -27,10 +28,11 @@ type CreateCompanyResponse struct {
 // If company_name is provided but company_id is omitted, a company is auto-created.
 type CreateUserRequest struct {
 	// Account resolution
-	AccountID   string `json:"account_id"`
-	AccountName string `json:"account_name"`
-	Currency    string `json:"currency"`
-	AccountType string `json:"account_type"`
+	AccountID     string `json:"account_id"`
+	AccountName   string `json:"account_name"`
+	PaymentHandle string `json:"payment_handle"`
+	Currency      string `json:"currency"`
+	AccountType   string `json:"account_type"`
 
 	// Company resolution
 	CompanyID           string `json:"company_id"`
@@ -56,9 +58,10 @@ type ListAccountsRequest struct {
 }
 
 type AccountListItem struct {
-	AccountID   string `json:"account_id"`
-	AccountName string `json:"account_name"`
-	Currency    string `json:"currency"`
+	AccountID     string `json:"account_id"`
+	AccountName   string `json:"account_name"`
+	PaymentHandle string `json:"payment_handle"`
+	Currency      string `json:"currency"`
 }
 
 type ListAccountsResponse struct {
@@ -66,4 +69,19 @@ type ListAccountsResponse struct {
 	Total    int               `json:"total"`
 	Page     int               `json:"page"`
 	PageSize int               `json:"page_size"`
+}
+
+type UserInfoResponse struct {
+	AccountID            string  `json:"account_id"`
+	AccountName          string  `json:"account_name"`
+	PaymentHandle        string  `json:"payment_handle"`
+	AccountType          string  `json:"account_type"`
+	Balance              int64   `json:"balance"`
+	Currency             string  `json:"currency"`
+	AllowNegativeBalance bool    `json:"allow_negative_balance"`
+	UserID               *string `json:"user_id,omitempty"`
+	Role                 *string `json:"role,omitempty"`
+	CompanyID            *string `json:"company_id,omitempty"`
+	CompanyName          *string `json:"company_name,omitempty"`
+	CompanyBusinessName  *string `json:"company_business_name,omitempty"`
 }

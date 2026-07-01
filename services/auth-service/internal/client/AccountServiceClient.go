@@ -12,9 +12,10 @@ import (
 )
 
 type CreateAccountRequest struct {
-	AccountName string `json:"account_name"`
-	AccountType string `json:"account_type"`
-	Currency    string `json:"currency"`
+	AccountName   string `json:"account_name"`
+	PaymentHandle string `json:"payment_handle"`
+	AccountType   string `json:"account_type"`
+	Currency      string `json:"currency"`
 }
 
 type CreateAccountResponse struct {

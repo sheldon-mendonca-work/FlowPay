@@ -7,6 +7,228 @@ import (
 	"fmt"
 )
 
+func (r *OfferRepository) GetOffersByCompanyID(ctx context.Context, companyID string) ([]domain.CompanyOfferRow, error) {
+	query := `
+		SELECT
+			o.id,
+			o.offer_code,
+			o.offer_type,
+			o.offer_amount,
+			o.offer_percentage,
+			o.max_benefit_amount,
+			o.minimum_payment_amount,
+			o.maximum_payment_amount,
+			o.max_redemptions,
+			o.max_redemptions_per_user,
+			o.redeemed_count,
+			o.status,
+			o.budget_amount,
+			o.start_time,
+			o.end_time,
+			o.created_at,
+			COALESCE(a.account_name, '') AS promotion_pool_name,
+			a.balance AS remaining_budget
+		FROM offers o
+		JOIN users u ON u.id = o.created_by
+		LEFT JOIN accounts a ON a.id = o.promotion_pool_account_id
+		WHERE u.company_id = $1
+		ORDER BY o.created_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, companyID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var offers []domain.CompanyOfferRow
+	for rows.Next() {
+		var row domain.CompanyOfferRow
+		var maxPaymentAmount sql.NullInt64
+		var budgetAmount sql.NullInt64
+		var remainingBudget sql.NullInt64
+		var offerAmount sql.NullInt64
+		var offerPercentage sql.NullInt64
+
+		err := rows.Scan(
+			&row.ID,
+			&row.OfferCode,
+			&row.OfferType,
+			&offerAmount,
+			&offerPercentage,
+			&row.MaxBenefitAmount,
+			&row.MinimumPaymentAmount,
+			&maxPaymentAmount,
+			&row.MaxRedemptions,
+			&row.MaxRedemptionsPerUser,
+			&row.RedeemedCount,
+			&row.Status,
+			&budgetAmount,
+			&row.StartTime,
+			&row.EndTime,
+			&row.CreatedAt,
+			&row.PromotionPoolName,
+			&remainingBudget,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if offerAmount.Valid {
+			row.OfferAmount = &offerAmount.Int64
+		}
+		if offerPercentage.Valid {
+			row.OfferPercentage = &offerPercentage.Int64
+		}
+		if maxPaymentAmount.Valid {
+			row.MaximumPaymentAmount = &maxPaymentAmount.Int64
+		}
+		if budgetAmount.Valid {
+			row.BudgetAmount = &budgetAmount.Int64
+		}
+		if remainingBudget.Valid {
+			row.RemainingBudget = &remainingBudget.Int64
+		}
+
+		offers = append(offers, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return offers, nil
+}
+
+func (r *OfferRepository) GetAllOffers(ctx context.Context) ([]domain.CompanyOfferRow, error) {
+	query := `
+		SELECT
+			o.id,
+			o.offer_code,
+			o.offer_type,
+			o.offer_amount,
+			o.offer_percentage,
+			o.max_benefit_amount,
+			o.minimum_payment_amount,
+			o.maximum_payment_amount,
+			o.max_redemptions,
+			o.max_redemptions_per_user,
+			o.redeemed_count,
+			o.status,
+			o.budget_amount,
+			o.start_time,
+			o.end_time,
+			o.created_at,
+			COALESCE(a.account_name, '') AS promotion_pool_name,
+			a.balance AS remaining_budget
+		FROM offers o
+		LEFT JOIN accounts a ON a.id = o.promotion_pool_account_id
+		ORDER BY o.created_at DESC
+	`
+
+	rows, err := r.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var offers []domain.CompanyOfferRow
+	for rows.Next() {
+		var row domain.CompanyOfferRow
+		var maxPaymentAmount sql.NullInt64
+		var budgetAmount sql.NullInt64
+		var remainingBudget sql.NullInt64
+		var offerAmount sql.NullInt64
+		var offerPercentage sql.NullInt64
+
+		err := rows.Scan(
+			&row.ID,
+			&row.OfferCode,
+			&row.OfferType,
+			&offerAmount,
+			&offerPercentage,
+			&row.MaxBenefitAmount,
+			&row.MinimumPaymentAmount,
+			&maxPaymentAmount,
+			&row.MaxRedemptions,
+			&row.MaxRedemptionsPerUser,
+			&row.RedeemedCount,
+			&row.Status,
+			&budgetAmount,
+			&row.StartTime,
+			&row.EndTime,
+			&row.CreatedAt,
+			&row.PromotionPoolName,
+			&remainingBudget,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if offerAmount.Valid {
+			row.OfferAmount = &offerAmount.Int64
+		}
+		if offerPercentage.Valid {
+			row.OfferPercentage = &offerPercentage.Int64
+		}
+		if maxPaymentAmount.Valid {
+			row.MaximumPaymentAmount = &maxPaymentAmount.Int64
+		}
+		if budgetAmount.Valid {
+			row.BudgetAmount = &budgetAmount.Int64
+		}
+		if remainingBudget.Valid {
+			row.RemainingBudget = &remainingBudget.Int64
+		}
+
+		offers = append(offers, row)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return offers, nil
+}
+
+func (r *OfferRepository) GetCompanyOffersSummary(ctx context.Context, companyID string) (domain.CompanyOffersSummaryRow, error) {
+	query := `
+		SELECT
+			COUNT(*) FILTER (WHERE o.status = 'ACTIVE') AS active_offers,
+			COUNT(*) AS total_offers,
+			COALESCE(SUM(o.redeemed_count), 0) AS total_redemptions,
+			COALESCE(SUM(a.balance), 0) AS budget_remaining,
+			COALESCE(SUM(o.budget_amount), 0) AS initial_budget,
+			COALESCE(
+				AVG(
+					CASE WHEN o.max_redemptions > 0
+					THEN o.redeemed_count * 100.0 / o.max_redemptions
+					ELSE 0 END
+				),
+				0
+			) AS avg_conversion_rate
+		FROM offers o
+		JOIN users u ON u.id = o.created_by
+		LEFT JOIN accounts a ON a.id = o.promotion_pool_account_id
+		WHERE u.company_id = $1
+	`
+
+	var summary domain.CompanyOffersSummaryRow
+	err := r.db.QueryRowContext(ctx, query, companyID).Scan(
+		&summary.ActiveOffers,
+		&summary.TotalOffers,
+		&summary.TotalRedemptions,
+		&summary.BudgetRemaining,
+		&summary.InitialBudget,
+		&summary.AvgConversionRate,
+	)
+	if err != nil {
+		return domain.CompanyOffersSummaryRow{}, err
+	}
+
+	return summary, nil
+}
+
 type OfferRepository struct {
 	db *sql.DB
 }

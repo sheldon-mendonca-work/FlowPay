@@ -18,18 +18,18 @@ func NewAccountsRepository(db *sql.DB) *AccountsRepository {
 
 func (r *AccountsRepository) Create(ctx context.Context, tx *sql.Tx, account domain.Account) error {
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO accounts (id, account_name, balance, currency, account_type, allow_negative_balance, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-	`, account.ID, account.AccountName, account.Balance, account.Currency, account.AccountType, account.AllowNegativeBalance)
+		INSERT INTO accounts (id, account_name, payment_handle, balance, currency, account_type, allow_negative_balance, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+	`, account.ID, account.AccountName, account.PaymentHandle, account.Balance, account.Currency, account.AccountType, account.AllowNegativeBalance)
 	return err
 }
 
 func (r *AccountsRepository) FindByID(ctx context.Context, id string) (*domain.Account, error) {
 	var a domain.Account
 	err := r.db.QueryRowContext(ctx, `
-		SELECT id, account_name, balance, currency, account_type, allow_negative_balance, created_at, updated_at
+		SELECT id, account_name, payment_handle, balance, currency, account_type, allow_negative_balance, created_at, updated_at
 		FROM accounts WHERE id = $1
-	`, id).Scan(&a.ID, &a.AccountName, &a.Balance, &a.Currency, &a.AccountType, &a.AllowNegativeBalance, &a.CreatedAt, &a.UpdatedAt)
+	`, id).Scan(&a.ID, &a.AccountName, &a.PaymentHandle, &a.Balance, &a.Currency, &a.AccountType, &a.AllowNegativeBalance, &a.CreatedAt, &a.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -53,7 +53,7 @@ func (r *AccountsRepository) ListPaged(ctx context.Context, excludeAccountID, se
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_name, currency FROM accounts
+		SELECT id, account_name, payment_handle, currency FROM accounts
 		WHERE account_type = 'USER' AND id != $1 AND account_name ILIKE $2
 		ORDER BY account_name
 		LIMIT $3 OFFSET $4
@@ -66,7 +66,7 @@ func (r *AccountsRepository) ListPaged(ctx context.Context, excludeAccountID, se
 	items := []dto.AccountListItem{}
 	for rows.Next() {
 		var item dto.AccountListItem
-		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.Currency); err != nil {
+		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.PaymentHandle, &item.Currency); err != nil {
 			return nil, 0, err
 		}
 		items = append(items, item)

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flowpay/offer-service/internal/constants"
+	companyOffersDTO "flowpay/offer-service/internal/dto/CompanyOffers"
 	offerCreateDTO "flowpay/offer-service/internal/dto/OfferCreate"
 	offerRedeemDTO "flowpay/offer-service/internal/dto/OfferRedeem"
 	offerReserveDTO "flowpay/offer-service/internal/dto/OfferReserve"
@@ -179,12 +180,14 @@ func validateCreateOfferRequest(req offerCreateDTO.OfferCreationRequestDTO, idem
 		return flowpayOfferErrors.ErrMinimumPaymentAmountNegative
 	}
 
-	if req.MaximumPaymentAmount < 0 {
-		return flowpayOfferErrors.ErrMaximumPaymentAmountNegative
-	}
+	if req.MaximumPaymentAmount != nil {
+		if *req.MaximumPaymentAmount < 0 {
+			return flowpayOfferErrors.ErrMaximumPaymentAmountNegative
+		}
 
-	if req.MaximumPaymentAmount < req.MinimumPaymentAmount {
-		return flowpayOfferErrors.ErrMinimumPaymentAmountInvalid
+		if *req.MaximumPaymentAmount < req.MinimumPaymentAmount {
+			return flowpayOfferErrors.ErrMinimumPaymentAmountInvalid
+		}
 	}
 
 	if req.StartTime.IsZero() {
@@ -463,6 +466,105 @@ func (h *Handler) handleOfferReservePost(w http.ResponseWriter, r *http.Request)
 	})
 
 	writeJSON(w, http.StatusAccepted, resp)
+}
+
+func (h *Handler) HandleGetCompanyOffers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, flowpayOfferErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req companyOffersDTO.CompanyOffersRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteJSONError(w, flowpayOfferErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.CompanyID) == "" {
+		WriteJSONError(w, flowpayOfferErrors.ErrCompanyIdRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.offerService.GetCompanyOffers(ctx, req.CompanyID)
+	if err != nil {
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "get_company_offers_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"company_id":  req.CompanyID,
+			"error":       err.Error(),
+			"error_type":  flowpayOfferErrors.ErrorTypeDBFailure,
+		})
+		WriteJSONError(w, flowpayOfferErrors.ErrCreateOfferFailed.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	metrics.SuccessCount.WithLabelValues(constants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusOK)).Inc()
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleListOffers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, flowpayOfferErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	resp, err := h.offerService.GetAllOffers(ctx)
+	if err != nil {
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "list_offers_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"error":       err.Error(),
+			"error_type":  flowpayOfferErrors.ErrorTypeDBFailure,
+		})
+		WriteJSONError(w, flowpayOfferErrors.ErrCreateOfferFailed.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	metrics.SuccessCount.WithLabelValues(constants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusOK)).Inc()
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetCompanyOffersSummary(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		WriteJSONError(w, flowpayOfferErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req companyOffersDTO.CompanyOffersRequestDTO
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteJSONError(w, flowpayOfferErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if strings.TrimSpace(req.CompanyID) == "" {
+		WriteJSONError(w, flowpayOfferErrors.ErrCompanyIdRequired.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	summary, err := h.offerService.GetCompanyOffersSummary(ctx, req.CompanyID)
+	if err != nil {
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "get_company_offers_summary_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"company_id":  req.CompanyID,
+			"error":       err.Error(),
+			"error_type":  flowpayOfferErrors.ErrorTypeDBFailure,
+		})
+		WriteJSONError(w, flowpayOfferErrors.ErrCreateOfferFailed.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	metrics.SuccessCount.WithLabelValues(constants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusOK)).Inc()
+	writeJSON(w, http.StatusOK, summary)
 }
 
 func (h *Handler) HandleOfferIdRedeemTransactions(w http.ResponseWriter, r *http.Request) {

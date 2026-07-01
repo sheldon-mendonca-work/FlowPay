@@ -59,11 +59,12 @@ func (s *AccountService) CreateAccount(ctx context.Context, req dto.CreateAccoun
 	defer tx.Rollback()
 
 	if err := s.accountRepo.Create(ctx, tx, domain.Account{
-		ID:          id,
-		AccountName: req.AccountName,
-		AccountType: accountType,
-		Balance:     0,
-		Currency:    req.Currency,
+		ID:            id,
+		AccountName:   req.AccountName,
+		PaymentHandle: req.PaymentHandle,
+		AccountType:   accountType,
+		Balance:       0,
+		Currency:      req.Currency,
 	}); err != nil {
 		return nil, err
 	}
@@ -142,11 +143,12 @@ func (s *AccountService) CreateUser(ctx context.Context, req dto.CreateUserReque
 			accountType = "USER"
 		}
 		if err := s.accountRepo.Create(ctx, tx, domain.Account{
-			ID:          id,
-			AccountName: req.AccountName,
-			AccountType: accountType,
-			Balance:     0,
-			Currency:    req.Currency,
+			ID:            id,
+			AccountName:   req.AccountName,
+			PaymentHandle: req.PaymentHandle,
+			AccountType:   accountType,
+			Balance:       0,
+			Currency:      req.Currency,
 		}); err != nil {
 			return nil, err
 		}
@@ -213,6 +215,9 @@ func validateCreateAccountRequest(req dto.CreateAccountRequest) error {
 	if strings.TrimSpace(req.AccountName) == "" {
 		return accountErrors.ErrAccountNameRequired
 	}
+	if strings.TrimSpace(req.PaymentHandle) == "" {
+		return accountErrors.ErrPaymentHandleRequired
+	}
 	if strings.TrimSpace(req.Currency) == "" {
 		return accountErrors.ErrCurrencyRequired
 	}
@@ -249,6 +254,9 @@ func validateCreateUserRequest(req dto.CreateUserRequest) error {
 		if strings.TrimSpace(req.AccountName) == "" {
 			return accountErrors.ErrAccountNameRequired
 		}
+		if strings.TrimSpace(req.PaymentHandle) == "" {
+			return accountErrors.ErrPaymentHandleRequired
+		}
 		if strings.TrimSpace(req.Currency) == "" {
 			return accountErrors.ErrCurrencyRequired
 		}
@@ -259,21 +267,64 @@ func validateCreateUserRequest(req dto.CreateUserRequest) error {
 	return nil
 }
 
+func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dto.UserInfoResponse, error) {
+	account, err := s.accountRepo.FindByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, accountErrors.ErrAccountNotFound
+	}
+
+	resp := &dto.UserInfoResponse{
+		AccountID:            account.ID,
+		AccountName:          account.AccountName,
+		PaymentHandle:        account.PaymentHandle,
+		AccountType:          account.AccountType,
+		Balance:              account.Balance,
+		Currency:             account.Currency,
+		AllowNegativeBalance: account.AllowNegativeBalance,
+	}
+
+	user, err := s.userRepo.FindByAccountID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if user != nil {
+		resp.UserID = &user.ID
+		resp.Role = &user.Role
+
+		if user.CompanyID != "" {
+			company, err := s.companyRepo.FindByID(ctx, user.CompanyID)
+			if err != nil {
+				return nil, err
+			}
+			if company != nil {
+				resp.CompanyID = &company.ID
+				resp.CompanyName = &company.Name
+				resp.CompanyBusinessName = &company.BusinessName
+			}
+		}
+	}
+
+	return resp, nil
+}
+
 func (s *AccountService) GetDefaultList(ctx context.Context, callerAccountID, listType string) (*dto.DefaultListResponse, error) {
 	resp := &dto.DefaultListResponse{Type: listType}
 	switch listType {
-	case "users":
-		users, err := s.defaultCredsRepo.ListUsersExcluding(ctx, callerAccountID)
-		if err != nil {
-			return nil, err
-		}
-		resp.Users = users
-	case "company":
-		accounts, err := s.defaultCredsRepo.ListSystemAccounts(ctx)
+	case "accounts":
+		accounts, err := s.defaultCredsRepo.ListAccountsExcluding(ctx, callerAccountID)
 		if err != nil {
 			return nil, err
 		}
 		resp.Accounts = accounts
+	case "company":
+		sysAccounts, err := s.defaultCredsRepo.ListSystemAccounts(ctx)
+		if err != nil {
+			return nil, err
+		}
+		resp.SystemAccounts = sysAccounts
 	default:
 		return nil, accountErrors.ErrInvalidListType
 	}

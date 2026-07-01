@@ -32,7 +32,7 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok"))
+		w.Write([]byte("api gateway ok"))
 	})
 	mux.Handle("/metrics", promhttp.Handler())
 
@@ -47,6 +47,7 @@ func main() {
 	// account service - JWT required
 	mux.Handle("/accounts/defaults/list", withJWT(accountProxy))
 	mux.Handle("/accounts/list", withJWT(accountProxy))
+	mux.Handle("/accounts/userinfo", withJWT(accountProxy))
 
 	// payment-service — JWT required
 	mux.Handle("/payments", withJWT(paymentProxy))

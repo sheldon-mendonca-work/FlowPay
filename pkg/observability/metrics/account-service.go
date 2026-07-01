@@ -104,6 +104,15 @@ var DefaultCompaniesGetRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var UserInfoGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "user_info_get_request_duration_seconds",
+		Help:    "User info request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
 var DefaultListGetRequestDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "default_list_get_request_duration_seconds",
@@ -138,5 +147,6 @@ func InitAccountMetrics() {
 		DefaultCompaniesGetRequestDuration,
 		DefaultListGetRequestDuration,
 		AccountsListRequestDuration,
+		UserInfoGetRequestDuration,
 	)
 }

@@ -14,6 +14,7 @@ func ToAccountErrorType(err error) string {
 	case err == nil:
 		return ErrorTypeNone
 	case errors.Is(err, ErrAccountNameRequired),
+		errors.Is(err, ErrPaymentHandleRequired),
 		errors.Is(err, ErrCurrencyRequired),
 		errors.Is(err, ErrInvalidAccountType),
 		errors.Is(err, ErrCompanyNameRequired),

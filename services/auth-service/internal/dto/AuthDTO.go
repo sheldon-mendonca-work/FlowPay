@@ -1,11 +1,12 @@
 package dto
 
 type RegisterRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	AccountName string `json:"account_name"`
-	AccountType string `json:"account_type"`
-	Currency    string `json:"currency"`
+	Email         string `json:"email"`
+	Password      string `json:"password"`
+	AccountName   string `json:"account_name"`
+	PaymentHandle string `json:"payment_handle"`
+	AccountType   string `json:"account_type"`
+	Currency      string `json:"currency"`
 }
 
 type LoginRequest struct {

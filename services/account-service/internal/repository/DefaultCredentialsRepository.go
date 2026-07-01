@@ -17,10 +17,10 @@ func NewDefaultCredentialsRepository(db *sql.DB) *DefaultCredentialsRepository {
 
 func (r *DefaultCredentialsRepository) ListAccounts(ctx context.Context) ([]dto.DefaultAccountItem, error) {
 	const query = `
-		SELECT a.id, a.account_name, a.currency,
+		SELECT a.id, a.account_name, a.payment_handle, a.currency,
 		       CASE WHEN u.id IS NOT NULL THEN 'user' ELSE 'account' END AS account_type,
 		       c.name,
-		       dc.display_name, COALESCE(dc.description, '')
+		       COALESCE(dc.description, '')
 		FROM defaultcredentials dc
 		JOIN accounts a ON dc.account_id = a.id
 		LEFT JOIN users u ON u.account_id = a.id
@@ -37,7 +37,7 @@ func (r *DefaultCredentialsRepository) ListAccounts(ctx context.Context) ([]dto.
 	for rows.Next() {
 		var item dto.DefaultAccountItem
 		var companyName sql.NullString
-		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.Currency, &item.AccountType, &companyName, &item.DisplayName, &item.Description); err != nil {
+		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.PaymentHandle, &item.Currency, &item.AccountType, &companyName, &item.Description); err != nil {
 			return nil, err
 		}
 		if companyName.Valid {
@@ -51,10 +51,11 @@ func (r *DefaultCredentialsRepository) ListAccounts(ctx context.Context) ([]dto.
 
 func (r *DefaultCredentialsRepository) ListUsers(ctx context.Context) ([]dto.DefaultUserItem, error) {
 	const query = `
-		SELECT u.id, u.account_id, u.company_id, u.role,
-		       dc.display_name, COALESCE(dc.description, '')
+		SELECT u.id, u.account_id, a.payment_handle, u.company_id, u.role,
+		       COALESCE(dc.description, '')
 		FROM defaultcredentials dc
 		JOIN users u ON dc.account_id = u.account_id
+		JOIN accounts a ON a.id = u.account_id
 		ORDER BY dc.created_at
 	`
 	rows, err := r.db.QueryContext(ctx, query)
@@ -67,7 +68,7 @@ func (r *DefaultCredentialsRepository) ListUsers(ctx context.Context) ([]dto.Def
 	for rows.Next() {
 		var item dto.DefaultUserItem
 		var companyID sql.NullString
-		if err := rows.Scan(&item.UserID, &item.AccountID, &companyID, &item.Role, &item.DisplayName, &item.Description); err != nil {
+		if err := rows.Scan(&item.UserID, &item.AccountID, &item.PaymentHandle, &companyID, &item.Role, &item.Description); err != nil {
 			return nil, err
 		}
 		if companyID.Valid {
@@ -79,13 +80,17 @@ func (r *DefaultCredentialsRepository) ListUsers(ctx context.Context) ([]dto.Def
 	return items, rows.Err()
 }
 
-func (r *DefaultCredentialsRepository) ListUsersExcluding(ctx context.Context, excludeAccountID string) ([]dto.DefaultUserItem, error) {
+func (r *DefaultCredentialsRepository) ListAccountsExcluding(ctx context.Context, excludeAccountID string) ([]dto.DefaultAccountItem, error) {
 	const query = `
-		SELECT u.id, u.account_id, u.company_id, u.role,
-		       dc.display_name, COALESCE(dc.description, '')
+		SELECT a.id, a.account_name, a.payment_handle, a.currency,
+		       CASE WHEN u.id IS NOT NULL THEN 'user' ELSE 'account' END AS account_type,
+		       c.name,
+		       COALESCE(dc.description, '')
 		FROM defaultcredentials dc
-		JOIN users u ON dc.account_id = u.account_id
-		WHERE dc.account_id != $1
+		JOIN accounts a ON dc.account_id = a.id
+		LEFT JOIN users u ON u.account_id = a.id
+		LEFT JOIN companies c ON c.id = u.company_id
+		WHERE a.account_type = 'USER' AND dc.account_id != $1
 		ORDER BY dc.created_at
 	`
 	rows, err := r.db.QueryContext(ctx, query, excludeAccountID)
@@ -94,16 +99,16 @@ func (r *DefaultCredentialsRepository) ListUsersExcluding(ctx context.Context, e
 	}
 	defer rows.Close()
 
-	items := []dto.DefaultUserItem{}
+	items := []dto.DefaultAccountItem{}
 	for rows.Next() {
-		var item dto.DefaultUserItem
-		var companyID sql.NullString
-		if err := rows.Scan(&item.UserID, &item.AccountID, &companyID, &item.Role, &item.DisplayName, &item.Description); err != nil {
+		var item dto.DefaultAccountItem
+		var companyName sql.NullString
+		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.PaymentHandle, &item.Currency, &item.AccountType, &companyName, &item.Description); err != nil {
 			return nil, err
 		}
-		if companyID.Valid {
-			c := companyID.String
-			item.CompanyID = &c
+		if companyName.Valid {
+			c := companyName.String
+			item.CompanyName = &c
 		}
 		items = append(items, item)
 	}
@@ -112,8 +117,8 @@ func (r *DefaultCredentialsRepository) ListUsersExcluding(ctx context.Context, e
 
 func (r *DefaultCredentialsRepository) ListSystemAccounts(ctx context.Context) ([]dto.DefaultSystemAccountItem, error) {
 	const query = `
-		SELECT a.id, a.account_name, a.account_type,
-		       dc.display_name, COALESCE(dc.description, '')
+		SELECT a.id, a.account_name, a.payment_handle, a.account_type,
+		       COALESCE(dc.description, '')
 		FROM defaultcredentials dc
 		JOIN accounts a ON dc.account_id = a.id
 		WHERE a.account_type IN ('SYSTEM', 'PROMOTION_POOL')
@@ -128,7 +133,7 @@ func (r *DefaultCredentialsRepository) ListSystemAccounts(ctx context.Context) (
 	items := []dto.DefaultSystemAccountItem{}
 	for rows.Next() {
 		var item dto.DefaultSystemAccountItem
-		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.AccountType, &item.DisplayName, &item.Description); err != nil {
+		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.PaymentHandle, &item.AccountType, &item.Description); err != nil {
 			return nil, err
 		}
 		items = append(items, item)
@@ -140,9 +145,10 @@ func (r *DefaultCredentialsRepository) ListCompanies(ctx context.Context) ([]dto
 	// DISTINCT ON (c.id) deduplicates companies when multiple default users belong to the same company.
 	const query = `
 		SELECT DISTINCT ON (c.id) c.id, c.name, c.business_name,
-		       dc.account_id, dc.display_name, COALESCE(dc.description, '')
+		       dc.account_id, a.payment_handle, COALESCE(dc.description, '')
 		FROM defaultcredentials dc
 		JOIN users u ON dc.account_id = u.account_id
+		JOIN accounts a ON a.id = u.account_id
 		JOIN companies c ON u.company_id = c.id
 		ORDER BY c.id
 	`
@@ -155,7 +161,7 @@ func (r *DefaultCredentialsRepository) ListCompanies(ctx context.Context) ([]dto
 	items := []dto.DefaultCompanyItem{}
 	for rows.Next() {
 		var item dto.DefaultCompanyItem
-		if err := rows.Scan(&item.CompanyID, &item.Name, &item.BusinessName, &item.AccountID, &item.DisplayName, &item.Description); err != nil {
+		if err := rows.Scan(&item.CompanyID, &item.Name, &item.BusinessName, &item.AccountID, &item.PaymentHandle, &item.Description); err != nil {
 			return nil, err
 		}
 		items = append(items, item)

@@ -18,7 +18,7 @@ import (
 )
 
 func getHealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("ok"))
+	w.Write([]byte("auth service ok"))
 }
 
 func handleMetrics(w http.ResponseWriter, r *http.Request) {
@@ -50,7 +50,7 @@ func main() {
 	httpHandler := api.NewHandler(authService)
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", getHealthCheck)
+	mux.HandleFunc("/auth/health", getHealthCheck)
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/auth/login", httpHandler.HandleAuthLoginRoute)
 	mux.HandleFunc("/auth/register", httpHandler.HandleAuthRegisterRoute)

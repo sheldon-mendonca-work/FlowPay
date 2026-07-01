@@ -1,285 +1,303 @@
-# 🔧 FlowPay — Distributed Fintech System
+# FlowPay
 
-Production-grade distributed payment platform built to explore real-world fintech architecture, reliability engineering, and distributed systems design.
+> A production-grade distributed payment platform built to explore fintech architecture, event-driven systems, reliability engineering, and financial consistency.
 
-FlowPay simulates how modern payment platforms handle money movement, event processing, promotions, reconciliation, and failure recovery at scale.
-
----
-
-## 🚀 Highlights
-
-* Distributed microservice architecture
-* Event-driven payment processing
-* Double-entry ledger accounting
-* Transactional Outbox Pattern
-* Idempotent APIs and consumers
-* Offer & promotion engine
-* Concurrency-safe inventory reservation
-* Replay-safe event handling
-* Audit trail and reconciliation support
-* End-to-end observability
-* Failure-first system design
+FlowPay simulates how modern payment platforms process payments, apply promotional offers, publish domain events, recover from failures, and maintain financial correctness under retries and concurrent workloads.
 
 ---
 
-## 🏗️ Tech Stack
+# Architecture
 
-* Golang
-* PostgreSQL
-* Kafka (KRaft)
-* Redis
-* Docker Compose
-* Prometheus
-* Grafana
-* Jaeger
-
----
-
-## 🧩 Services
-
-* API Gateway
-* Payment Service
-* Transaction Processor
-* Ledger Service
-* Wallet Service
-* Offer Service
-
----
-
-## ⚙️ Distributed Systems Concepts
-
-### Reliability
-
-* Idempotency Keys
-* Retry Handling
-* Crash Recovery
-* Replay Protection
-* Optimistic Locking
-
-### Event-Driven Architecture
-
-* Kafka Event Streaming
-* Transactional Outbox
-* At-Least-Once Delivery
-* Consumer Deduplication
-
-### Financial Consistency
-
-* Double-Entry Ledger
-* Immutable Ledger Records
-* Atomic Balance Updates
-* Wallet Projection Model
-
-### Scalability
-
-* Lease-Based Worker Coordination
-* Async Processing Pipelines
-* Eventual Consistency
-* Service Isolation
-
-### Observability
-
-* Structured Logging
-* Distributed Tracing
-* RED Metrics
-* Operational Monitoring
+```text
+                 +----------------------+
+                 |   React Frontend     |
+                 +----------+-----------+
+                            |
+                      API Gateway
+                            |
+        +-------------------+-------------------+
+        |                   |                   |
+ Payment Service     Account/Auth Service   Offer Service
+        |                   |                   |
+        +-------------------+-------------------+
+                            |
+                       PostgreSQL
+                            |
+                 Transactional Outbox
+                            |
+                          Kafka
+                            |
+                 Payment Executor Service
+```
 
 ---
 
-## ✅ Implemented Features
+# Highlights
 
-### Payment Processing
-
-Implemented:
-
-* Payment creation API
-* Idempotent payment execution
-* Async transaction orchestration
-* Duplicate request protection
-* Failure recovery workflows
-
-Guarantees:
-
-* Safe retries
-* No duplicate processing
-* Consistent payment state transitions
+- Production-grade distributed microservice architecture
+- Event-driven payment processing using Kafka
+- Transactional Outbox Pattern
+- Idempotent REST APIs
+- Replay-safe Kafka consumers
+- Optimistic locking for concurrent offer redemption
+- Lease-based worker coordination
+- Financial consistency through immutable transaction history
+- Structured logging, distributed tracing, and Prometheus metrics
+- Failure-first system design
 
 ---
 
-### Event Processing Platform
+# Tech Stack
 
-Implemented:
+### Backend
 
-* Transactional Outbox Pattern
-* Kafka publishing workers
-* Lease-based coordination
-* Replay-safe consumers
-* End-to-end trace propagation
+- Go
+- PostgreSQL
+- Kafka (KRaft)
+- Redis
 
-Guarantees:
+### Infrastructure
 
-* At-least-once delivery
-* Crash recovery
-* Event replay safety
+- Docker Compose
+- Prometheus
+- Grafana
+- Jaeger
 
----
+### Frontend
 
-### Ledger Service
-
-Implemented:
-
-* Double-entry accounting model
-* Immutable ledger records
-* Atomic transaction recording
-* Financial audit support
-
-Guarantees:
-
-* Money is never created or destroyed outside the ledger
-* Ledger remains the system of record
+- React
+- TypeScript
+- Tailwind CSS
 
 ---
 
-### Wallet Service
+# Services
 
-Implemented:
-
-* Real-time balance projection
-* Ledger-driven updates
-* Event-based synchronization
-
-Guarantees:
-
-* Wallet balances derived from ledger activity
-* Eventual consistency with financial source of truth
-
----
-
-### Offer & Promotion Engine
-
-#### Offer Management
-
-Implemented:
-
-* Admin-created offers
-* Fixed-value discounts
-* Percentage-based discounts
-* Fixed cashback offers
-* Percentage cashback offers
-
-#### Offer Controls
-
-Implemented:
-
-* Global redemption limits
-* Per-user redemption limits
-* Payment amount eligibility rules
-* Offer lifecycle management
-
-#### Concurrency Protection
-
-Implemented:
-
-* Reservation-based allocation model
-* Optimistic locking
-* Oversubscription prevention
-* Inventory-safe redemption workflow
-
-#### Auditability
-
-Implemented:
-
-* Offer event history
-* Redemption tracking
-* Refund tracking
-* Operational audit trail
+| Service | Purpose |
+|----------|---------|
+| API Gateway | Entry point for frontend requests and routing |
+| Account Service | Account, company, and user management |
+| Auth Service | JWT authentication, refresh tokens, demo login |
+| Payment Service | Payment APIs with idempotent request handling |
+| Payment Executor | Kafka consumer that executes payments asynchronously |
+| Offer Service | Offer creation, reservation, redemption, and expiry |
+| Reconciliation Service | Detects inconsistencies across payments, transactions, idempotency records, and outbox events |
 
 ---
 
-## 📊 Observability
+# Distributed Systems Concepts
 
-Every service includes:
+## Reliability
 
-* Structured JSON logging
-* Request IDs
-* Trace IDs
-* Prometheus metrics
-* Distributed tracing support
+- Idempotency Keys
+- Retry-safe APIs
+- Crash Recovery
+- Replay-safe Consumers
+- Optimistic Locking
 
-Metrics follow RED principles:
+## Event-Driven Architecture
 
-* Rate
-* Errors
-* Duration
+- Kafka Event Streaming
+- Transactional Outbox Pattern
+- At-Least-Once Delivery
+- Consumer Deduplication
 
----
+## Financial Consistency
 
-## 🛡️ Reliability Guarantees
+- Atomic payment execution
+- Immutable transaction history
+- Controlled payment state transitions
 
-FlowPay is intentionally designed around failure scenarios.
+## Scalability
 
-The system tolerates:
+- Asynchronous processing
+- Lease-based worker coordination
+- Eventual consistency
+- Service isolation
 
-* Duplicate API requests
-* Duplicate Kafka events
-* Worker crashes
-* Service restarts
-* Network interruptions
-* Partial failures
-* Event replay
-* Concurrent access races
+## Observability
 
----
-
-## 📚 What This Project Demonstrates
-
-* Backend engineering
-* Distributed systems design
-* Event-driven architecture
-* Fintech platform fundamentals
-* Reliability engineering
-* Financial consistency guarantees
-* Observability and operations
-* Concurrency control
-* Failure recovery patterns
+- Structured JSON logging
+- Distributed tracing
+- RED metrics
+- Prometheus + Grafana dashboards
 
 ---
 
-## 📈 Current Status
+# Features
 
-### Completed
+## Payment Processing
 
-* ✅ Payment Service
-* ✅ Transaction Processor
-* ✅ Kafka Event Pipeline
-* ✅ Ledger Service
-* ✅ Wallet Service
-* ✅ Offer Creation Engine
-
-### In Progress
-
-* 🔄 Offer Reservation System
-* 🔄 Offer Redemption Workflow
-* 🔄 Offer Refund Processing
-
-### Planned
-
-* Fraud Detection Service
-* Scheduler Service
-* Reconciliation Service
-* Load Testing & Capacity Validation
-* Multi-Region Design Exploration
+- Payment creation API
+- Idempotent payment execution
+- Asynchronous execution via Kafka
+- Transaction history
+- Failure recovery
+- Duplicate request protection
+- Replay-safe event handling
 
 ---
 
-## 🎯 Engineering Focus
+## Offer Engine
 
-FlowPay is designed as a hands-on study of how large-scale fintech systems are built and operated, with particular emphasis on:
+Supports:
 
-* Consistency vs Availability trade-offs
-* Failure recovery and resiliency
-* Event-driven system design
-* Distributed transaction patterns
-* Financial correctness guarantees
-* Production-grade observability
-* High-concurrency system behavior
+- Fixed discount offers
+- Percentage discount offers
+- Fixed cashback offers
+- Percentage cashback offers
+
+Features:
+
+- Offer creation
+- Offer listing
+- Offer reservation
+- Offer redemption
+- Automatic offer expiry
+- Global redemption limits
+- Per-user redemption limits
+- Payment eligibility rules
+- Optimistic locking
+- Inventory-safe redemption workflow
+
+---
+
+## Authentication
+
+- User registration
+- JWT access tokens
+- Refresh tokens
+- Logout
+- Demo account login
+- Company login
+
+---
+
+## Account Management
+
+- Account management
+- Company management
+- User management
+- Seeded demo accounts
+
+---
+
+## Reconciliation
+
+Detects inconsistencies between:
+
+- Payments
+- Transactions
+- Idempotency records
+- Outbox events
+
+Provides both individual and bulk reconciliation endpoints.
+
+---
+
+# Reliability Guarantees
+
+FlowPay is designed assuming failures are normal.
+
+The system safely handles:
+
+- Duplicate HTTP requests
+- Duplicate Kafka events
+- Service restarts
+- Worker crashes
+- Event replay
+- Partial failures
+- Concurrent offer redemption
+- Network interruptions
+
+---
+
+# Observability
+
+Every service emits:
+
+- Structured JSON logs
+- Request IDs
+- Trace IDs
+- Prometheus metrics
+
+Metrics follow the RED methodology:
+
+- **Rate**
+- **Errors**
+- **Duration**
+
+---
+
+# Running Locally
+
+```bash
+docker compose up -d
+
+# Start individual services
+go run payment-service
+go run payment-executor
+go run account-service
+go run auth-service
+go run offer-service
+go run reconciliation-service
+```
+
+---
+
+# Roadmap
+
+## Completed
+
+- Payment Service
+- Kafka Event Pipeline
+- Transactional Outbox Pattern
+- Payment Executor
+- Offer Engine
+- Account Service
+- Authentication
+- Reconciliation Service
+
+## In Progress
+
+- Frontend Integration
+- API Gateway Routing
+
+## Planned
+
+- Dedicated Ledger Service
+- Dedicated Wallet Service
+- Fraud Detection Service
+- Scheduler Service
+- Load Testing
+- Multi-region Architecture
+
+---
+
+# Engineering Focus
+
+FlowPay is designed as a hands-on study of modern distributed payment systems, with emphasis on:
+
+- Event-driven architectures
+- Distributed transaction patterns
+- Financial consistency guarantees
+- Reliability engineering
+- Failure recovery
+- High-concurrency systems
+- Production-grade observability
+- System evolution and scalability
+
+---
+
+# Future Enhancements
+
+- Dedicated Ledger microservice
+- Dedicated Wallet microservice
+- Fraud detection pipeline
+- Scheduled financial workflows
+- Advanced reconciliation automation
+- Chaos testing
+- Horizontal scaling
+- Multi-region deployment
+- Exactly-once effect patterns
+- Kubernetes deployment

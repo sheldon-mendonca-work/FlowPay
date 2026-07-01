@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flowpay/offer-service/internal/constants"
 	"flowpay/offer-service/internal/domain"
+	companyOffersDTO "flowpay/offer-service/internal/dto/CompanyOffers"
 	offerCreateDTO "flowpay/offer-service/internal/dto/OfferCreate"
 	offerRedeemDTO "flowpay/offer-service/internal/dto/OfferRedeem"
 	offerReserveDTO "flowpay/offer-service/internal/dto/OfferReserve"
@@ -16,6 +17,8 @@ import (
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/utils"
 	"fmt"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -32,8 +35,12 @@ type OfferRepository interface {
 		tx *sql.Tx,
 		offerID string,
 	) error
+	GetOffersByCompanyID(ctx context.Context, companyID string) ([]domain.CompanyOfferRow, error)
+	GetCompanyOffersSummary(ctx context.Context, companyID string) (domain.CompanyOffersSummaryRow, error)
+	GetAllOffers(ctx context.Context) ([]domain.CompanyOfferRow, error)
 }
 type CompanyRepository interface {
+	GetCompanyNameByID(ctx context.Context, tx *sql.Tx, companyID string) (string, error)
 }
 type OfferEventsRepository interface {
 	CreateEvent(
@@ -513,6 +520,15 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 		return rollbackTechnicalFailure("account_validation", err)
 	}
 
+	companyName, err := r.companyRepository.GetCompanyNameByID(ctx, tx, req.CompanyId)
+	if err != nil {
+		if isDeterministicBusinessFailure(err) {
+			return markFailedAndCommit("account_validation", err)
+		}
+
+		return rollbackTechnicalFailure("account_validation", err)
+	}
+
 	newOfferItem := domain.OfferEntity{
 		ID:                     offerId,
 		OfferCode:              req.OfferCode,
@@ -534,6 +550,33 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 		BudgetAmount:           req.BudgetAmount,
 		StartTime:              req.StartTime,
 		EndTime:                req.EndTime,
+	}
+
+	promotionPoolAccountName := fmt.Sprintf(
+		"%s_%s_POOL_%s_%s",
+		strings.ToUpper(companyName),
+		strings.ToUpper(newOfferItem.OfferCode),
+		newOfferItem.StartTime.Format("20060102"),
+		newOfferItem.EndTime.Format("20060102"),
+	)
+
+	promotionPoolAccount := domain.Account{
+		ID:          promotionPoolAccountId,
+		AccountName: promotionPoolAccountName,
+		PaymentHandle: fmt.Sprintf(
+			"%s@%s",
+			promotionPoolAccountName,
+			strings.ToLower(companyName),
+		),
+		AccountType:          "PROMOTION_POOL",
+		AllowNegativeBalance: true,
+		Balance:              *newOfferItem.BudgetAmount, // <- total campaign budget
+		Currency:             "INR",
+	}
+
+	err = r.accountRepository.CreateNewAccountForOffer(ctx, tx, promotionPoolAccount)
+	if err != nil {
+		return rollbackTechnicalFailure("promotional_account_creation", err)
 	}
 
 	// create offer
@@ -583,24 +626,6 @@ func (r *OfferService) CreateNewOffer(ctx context.Context, req offerCreateDTO.Of
 		}
 
 		return rollbackTechnicalFailure("offer_creation", err)
-	}
-
-	promotionPoolAccount := domain.Account{
-		ID: promotionPoolAccountId,
-		AccountName: fmt.Sprintf(
-			"%s_%s_CASHBACK_POOL",
-			newOfferItem.CreatedBy,
-			newOfferItem.OfferCode,
-		),
-		AccountType:          "PROMOTION_POOL",
-		AllowNegativeBalance: true,
-		Balance:              *newOfferItem.BudgetAmount, // <- total campaign budget
-		Currency:             "INR",
-	}
-
-	err = r.accountRepository.CreateNewAccountForOffer(ctx, tx, promotionPoolAccount)
-	if err != nil {
-		return rollbackTechnicalFailure("promotional_account_creation", err)
 	}
 
 	response := offerCreateDTO.OfferCreationResponseDTO{
@@ -1387,6 +1412,106 @@ func (s *OfferService) RedeemOffer(ctx context.Context, req offerRedeemDTO.Offer
 	logger.LogPlain(ctx, constants.ServiceName, "committed offer reservation transaction redemption_id=%s, reservation_id=%s, offer_id=%s", redemptionID, reservationID, offerID)
 
 	return response, nil
+}
+
+func toCompanyOfferDTO(row domain.CompanyOfferRow) companyOffersDTO.CompanyOfferDTO {
+	dto := companyOffersDTO.CompanyOfferDTO{
+		ID:                row.ID,
+		Code:              row.OfferCode,
+		Type:              row.OfferType,
+		MaxBenefit:        row.MaxBenefitAmount,
+		MinPaymentAmount:  row.MinimumPaymentAmount,
+		MaxPaymentAmount:  row.MaximumPaymentAmount,
+		MaxRedemptions:    row.MaxRedemptions,
+		PerUserLimit:      row.MaxRedemptionsPerUser,
+		StartTime:         row.StartTime,
+		EndTime:           row.EndTime,
+		PromotionPoolName: row.PromotionPoolName,
+		InitialBudget:     row.BudgetAmount,
+		RemainingBudget:   row.RemainingBudget,
+		TotalRedemptions:  row.RedeemedCount,
+		Status:            row.Status,
+		CreatedAt:         row.CreatedAt,
+	}
+
+	if row.OfferPercentage != nil {
+		dto.IsPercentage = true
+		dto.BenefitAmount = *row.OfferPercentage
+	} else if row.OfferAmount != nil {
+		dto.IsPercentage = false
+		dto.BenefitAmount = *row.OfferAmount
+	}
+
+	if row.MaxRedemptions > 0 {
+		rate := float64(row.RedeemedCount) * 100.0 / float64(row.MaxRedemptions)
+		dto.ConversionRate = math.Round(rate*10) / 10
+	}
+
+	if row.RemainingBudget != nil && *row.RemainingBudget > 0 {
+		dto.FundingStatus = "FUNDED"
+	} else {
+		dto.FundingStatus = "DEPLETED"
+	}
+
+	return dto
+}
+
+func (s *OfferService) GetCompanyOffers(ctx context.Context, companyID string) (companyOffersDTO.CompanyOffersResponseDTO, error) {
+	rows, err := s.offerRepository.GetOffersByCompanyID(ctx, companyID)
+	if err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "get_company_offers_failed", logger.Fields{
+			"company_id": companyID,
+			"error":      err.Error(),
+			"error_type": flowpayOfferErrors.ErrorTypeDBFailure,
+		})
+		return companyOffersDTO.CompanyOffersResponseDTO{}, err
+	}
+
+	offers := make([]companyOffersDTO.CompanyOfferDTO, 0, len(rows))
+	for _, row := range rows {
+		offers = append(offers, toCompanyOfferDTO(row))
+	}
+
+	return companyOffersDTO.CompanyOffersResponseDTO{Offers: offers}, nil
+}
+
+func (s *OfferService) GetCompanyOffersSummary(ctx context.Context, companyID string) (companyOffersDTO.CompanyOffersSummaryDTO, error) {
+	summary, err := s.offerRepository.GetCompanyOffersSummary(ctx, companyID)
+	if err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "get_company_offers_summary_failed", logger.Fields{
+			"company_id": companyID,
+			"error":      err.Error(),
+			"error_type": flowpayOfferErrors.ErrorTypeDBFailure,
+		})
+		return companyOffersDTO.CompanyOffersSummaryDTO{}, err
+	}
+
+	return companyOffersDTO.CompanyOffersSummaryDTO{
+		ActiveOffers:      summary.ActiveOffers,
+		TotalOffers:       summary.TotalOffers,
+		TotalRedemptions:  summary.TotalRedemptions,
+		BudgetRemaining:   summary.BudgetRemaining,
+		InitialBudget:     summary.InitialBudget,
+		AvgConversionRate: math.Round(summary.AvgConversionRate*10) / 10,
+	}, nil
+}
+
+func (s *OfferService) GetAllOffers(ctx context.Context) (companyOffersDTO.CompanyOffersResponseDTO, error) {
+	rows, err := s.offerRepository.GetAllOffers(ctx)
+	if err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "get_all_offers_failed", logger.Fields{
+			"error":      err.Error(),
+			"error_type": flowpayOfferErrors.ErrorTypeDBFailure,
+		})
+		return companyOffersDTO.CompanyOffersResponseDTO{}, err
+	}
+
+	offers := make([]companyOffersDTO.CompanyOfferDTO, 0, len(rows))
+	for _, row := range rows {
+		offers = append(offers, toCompanyOfferDTO(row))
+	}
+
+	return companyOffersDTO.CompanyOffersResponseDTO{Offers: offers}, nil
 }
 
 func generateRandomId() (string, error) {
