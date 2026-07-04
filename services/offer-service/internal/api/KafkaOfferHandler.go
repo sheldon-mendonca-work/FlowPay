@@ -28,9 +28,22 @@ func (h *KafkaOfferHandler) HandlePaymentInitiated(
 	payload kafka.Message,
 ) error {
 	var event domain.PaymentInitiatedEvent
+	if err := json.Unmarshal(payload.Value, &event); err != nil {
+		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "kafka_message_decode_failed", logger.Fields{
+			"topic":      payload.Topic,
+			"partition":  payload.Partition,
+			"offset":     payload.Offset,
+			"error_type": flowpayOfferErrors.ErrorTypeKafkaMessageDecoding,
+			"error":      err.Error(),
+		})
+		return err
+	}
+
 	if event.OfferID == "" {
 		return nil
 	}
+
+	ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)
 
 	_, err := h.offerService.ReserveOffer(
 		ctx,
@@ -66,9 +79,6 @@ func (h *KafkaOfferHandler) HandlePaymentSuccess(
 ) error {
 	var event domain.PaymentSuccessEvent
 
-	if event.OfferID == nil || *event.OfferID == "" {
-		return nil
-	}
 	if err := json.Unmarshal(payload.Value, &event); err != nil {
 		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "kafka_message_decode_failed", logger.Fields{
 			"topic":      payload.Topic,
@@ -78,6 +88,10 @@ func (h *KafkaOfferHandler) HandlePaymentSuccess(
 			"error":      err.Error(),
 		})
 		return err
+	}
+
+	if event.OfferID == nil || *event.OfferID == "" {
+		return nil
 	}
 
 	ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)

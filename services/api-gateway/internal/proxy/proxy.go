@@ -13,7 +13,7 @@ import (
 	"flowpay/pkg/observability/tracing"
 )
 
-const upstreamTimeout = 5 * time.Second
+const upstreamTimeout = 16500 * time.Millisecond
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -23,6 +23,12 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.statusCode = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
 }
 
 func New(target, serviceName string) http.Handler {
@@ -63,9 +69,13 @@ func New(target, serviceName string) http.Handler {
 		start := time.Now()
 		route := r.URL.Path
 
-		ctx, cancel := context.WithTimeout(r.Context(), upstreamTimeout)
-		defer cancel()
-		r = r.WithContext(ctx)
+		ctx := r.Context()
+		if r.Header.Get("Accept") != "text/event-stream" {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, upstreamTimeout)
+			defer cancel()
+			r = r.WithContext(ctx)
+		}
 
 		rec := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 

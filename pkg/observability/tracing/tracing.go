@@ -23,6 +23,12 @@ func (r *statusRecorder) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 }
 
+func (r *statusRecorder) Flush() {
+	if f, ok := r.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
 const (
 	traceIDContextKey   contextKey = "trace_id"
 	requestIDContextKey contextKey = "request_id"

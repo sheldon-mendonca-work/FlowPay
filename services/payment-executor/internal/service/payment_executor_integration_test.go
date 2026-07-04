@@ -45,6 +45,7 @@ func createPaymentExecutorService(db *sql.DB) *PaymentExecutorService {
 		repository.NewTransactionRepository(db),
 		repository.NewPaymentIdempotencyRepository(db),
 		repository.NewOutboxEventsRepository(db),
+		nil,
 	)
 }
 

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"database/sql"
 	"time"
 )
 
@@ -16,7 +17,7 @@ type OutboxEventType struct {
 	TraceID        string
 	RequestID      string
 	RetryCount     int8
-	LockedUntil    time.Time
+	LockedUntil    sql.NullTime
 	CreatedAt      time.Time
 	PublishedAt    time.Time
 }

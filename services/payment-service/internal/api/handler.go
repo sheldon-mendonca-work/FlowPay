@@ -192,7 +192,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	// Call the service method for handling this
@@ -319,7 +319,7 @@ func (h *Handler) HandlePaymentGetByIDMethod(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.paymentService.GetPaymentByID(ctx, paymentID)

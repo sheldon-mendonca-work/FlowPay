@@ -32,9 +32,27 @@ func WriteError(w http.ResponseWriter, status int, message string) {
 }
 
 func JWTAuth(secret, serviceName string, next http.Handler) http.Handler {
+	return jwtAuth(secret, serviceName, false, next)
+}
+
+// JWTAuthSSE behaves like JWTAuth but also accepts the token via a `token`
+// query parameter. Scope this to SSE routes only: the browser's native
+// EventSource cannot set an Authorization header, but a query-param token
+// can end up in server access logs, so header auth stays the default
+// everywhere else.
+func JWTAuthSSE(secret, serviceName string, next http.Handler) http.Handler {
+	return jwtAuth(secret, serviceName, true, next)
+}
+
+func jwtAuth(secret, serviceName string, allowQueryToken bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		authHeader := r.Header.Get("Authorization")
-		if !strings.HasPrefix(authHeader, "Bearer ") {
+		tokenStr, ok := bearerToken(r)
+		if !ok && allowQueryToken {
+			if q := r.URL.Query().Get("token"); q != "" {
+				tokenStr, ok = q, true
+			}
+		}
+		if !ok {
 			metrics.GatewayUnauthorizedTotal.WithLabelValues(serviceName, "missing_token").Inc()
 			logger.LogEvent(r.Context(), "WARN", serviceName, "gateway_request_unauthorized", logger.Fields{
 				"http_method": r.Method,
@@ -45,7 +63,6 @@ func JWTAuth(secret, serviceName string, next http.Handler) http.Handler {
 			return
 		}
 
-		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
 		claims, err := auth.ParseJWT(tokenStr, secret)
 		if err != nil {
 			metrics.GatewayUnauthorizedTotal.WithLabelValues(serviceName, "invalid_token").Inc()
@@ -61,6 +78,14 @@ func JWTAuth(secret, serviceName string, next http.Handler) http.Handler {
 		ctx := context.WithValue(r.Context(), userIDKey, claims.UserID)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
+}
+
+func bearerToken(r *http.Request) (string, bool) {
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", false
+	}
+	return strings.TrimPrefix(authHeader, "Bearer "), true
 }
 
 func RequestAndTrace(serviceName string, next http.Handler) http.Handler {

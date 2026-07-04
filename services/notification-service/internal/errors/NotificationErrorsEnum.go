@@ -3,6 +3,7 @@ package flowpayNotificationErrors
 import "errors"
 
 var (
+	ErrTraceIDRequired     = errors.New("trace_id is required")
 	ErrPaymentIDRequired   = errors.New("payment_id is required")
 	ErrStepNameRequired    = errors.New("step_name is required")
 	ErrStatusRequired      = errors.New("status is required")

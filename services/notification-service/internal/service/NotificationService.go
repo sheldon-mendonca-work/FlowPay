@@ -15,7 +15,7 @@ import (
 
 type NotificationRepository interface {
 	InsertTimelineStep(ctx context.Context, step domain.PaymentTimelineStep) (bool, error)
-	GetTimelineStepsByPaymentID(ctx context.Context, paymentID string) ([]domain.PaymentTimelineStep, error)
+	GetTimelineStepsByTraceID(ctx context.Context, traceID string) ([]domain.PaymentTimelineStep, error)
 }
 
 type NotificationService struct {
@@ -36,9 +36,12 @@ func NewNotificationService(db *sql.DB,
 	}
 }
 
-// IngestTimelineEvent persists a timeline step. Duplicate (payment_id, step_name, status)
+// IngestTimelineEvent persists a timeline step. Duplicate (trace_id, step_name, status)
 // combinations are silently ignored and do not trigger a broadcast.
 func (s *NotificationService) IngestTimelineEvent(ctx context.Context, event domain.PaymentTimelineEvent) error {
+	if event.TraceID == "" {
+		return flowpayNotificationErrors.ErrTraceIDRequired
+	}
 	if event.PaymentID == "" {
 		return flowpayNotificationErrors.ErrPaymentIDRequired
 	}
@@ -75,27 +78,28 @@ func (s *NotificationService) IngestTimelineEvent(ctx context.Context, event dom
 		return nil
 	}
 
-	timeline, err := s.GetTimeline(ctx, event.PaymentID)
+	timeline, err := s.GetTimeline(ctx, event.TraceID)
 	if err != nil {
 		return err
 	}
 
-	s.publish(event.PaymentID, timeline)
+	s.publish(event.TraceID, timeline)
 	return nil
 }
 
-func (s *NotificationService) GetTimeline(ctx context.Context, paymentID string) (dto.PaymentTimelineDTO, error) {
-	if paymentID == "" {
-		return dto.PaymentTimelineDTO{}, flowpayNotificationErrors.ErrPaymentIDRequired
+func (s *NotificationService) GetTimeline(ctx context.Context, traceID string) (dto.PaymentTimelineDTO, error) {
+	if traceID == "" {
+		return dto.PaymentTimelineDTO{}, flowpayNotificationErrors.ErrTraceIDRequired
 	}
 
-	steps, err := s.notificationRepository.GetTimelineStepsByPaymentID(ctx, paymentID)
+	steps, err := s.notificationRepository.GetTimelineStepsByTraceID(ctx, traceID)
 	if err != nil {
 		return dto.PaymentTimelineDTO{}, err
 	}
 
 	timelineSteps := make([]types.PaymentTimelineType, 0, len(steps))
 	status := types.CREATED
+	paymentID := ""
 	for _, step := range steps {
 		timelineSteps = append(timelineSteps, types.PaymentTimelineType{
 			StepName:      step.StepName,
@@ -103,33 +107,35 @@ func (s *NotificationService) GetTimeline(ctx context.Context, paymentID string)
 			CompletedTime: step.CompletedTime,
 		})
 		status = types.NotificationStatusEnum(step.Status)
+		paymentID = step.PaymentID
 	}
 
 	return dto.PaymentTimelineDTO{
+		TraceID:       traceID,
 		PaymentID:     paymentID,
 		Status:        status,
 		TimelineSteps: timelineSteps,
 	}, nil
 }
 
-// Subscribe registers the caller for timeline updates for a payment_id. The returned
+// Subscribe registers the caller for timeline updates for a trace_id. The returned
 // unsubscribe func must be called exactly once to release resources.
-func (s *NotificationService) Subscribe(paymentID string) (<-chan dto.PaymentTimelineDTO, func()) {
+func (s *NotificationService) Subscribe(traceID string) (<-chan dto.PaymentTimelineDTO, func()) {
 	ch := make(chan dto.PaymentTimelineDTO, 1)
 
 	s.mu.Lock()
-	if s.subscribers[paymentID] == nil {
-		s.subscribers[paymentID] = make(map[chan dto.PaymentTimelineDTO]struct{})
+	if s.subscribers[traceID] == nil {
+		s.subscribers[traceID] = make(map[chan dto.PaymentTimelineDTO]struct{})
 	}
-	s.subscribers[paymentID][ch] = struct{}{}
+	s.subscribers[traceID][ch] = struct{}{}
 	s.mu.Unlock()
 
 	unsubscribe := func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		delete(s.subscribers[paymentID], ch)
-		if len(s.subscribers[paymentID]) == 0 {
-			delete(s.subscribers, paymentID)
+		delete(s.subscribers[traceID], ch)
+		if len(s.subscribers[traceID]) == 0 {
+			delete(s.subscribers, traceID)
 		}
 		close(ch)
 	}
@@ -137,14 +143,14 @@ func (s *NotificationService) Subscribe(paymentID string) (<-chan dto.PaymentTim
 	return ch, unsubscribe
 }
 
-// publish sends the latest timeline snapshot to every subscriber of paymentID. It never
+// publish sends the latest timeline snapshot to every subscriber of traceID. It never
 // blocks: since each subscriber channel is only ever written to while holding s.mu, a full
 // channel is drained of its stale snapshot before the new one is queued.
-func (s *NotificationService) publish(paymentID string, timeline dto.PaymentTimelineDTO) {
+func (s *NotificationService) publish(traceID string, timeline dto.PaymentTimelineDTO) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for ch := range s.subscribers[paymentID] {
+	for ch := range s.subscribers[traceID] {
 		select {
 		case ch <- timeline:
 		default:

@@ -24,7 +24,8 @@ func ToNotificationErrorType(err error) string {
 		return ErrorTypeCanceled
 	case errors.Is(err, ErrInvalidEventPayload):
 		return ErrorTypeKafkaMessageDecoding
-	case errors.Is(err, ErrPaymentIDRequired),
+	case errors.Is(err, ErrTraceIDRequired),
+		errors.Is(err, ErrPaymentIDRequired),
 		errors.Is(err, ErrStepNameRequired),
 		errors.Is(err, ErrStatusRequired),
 		errors.Is(err, ErrMethodNotAllowed):

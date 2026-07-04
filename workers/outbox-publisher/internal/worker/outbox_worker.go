@@ -3,12 +3,12 @@ package worker
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	outboxPublisherConstants "flowpay/outbox-publisher/internal/constants"
 	"flowpay/outbox-publisher/internal/domain"
 	flowpayOutboxErrors "flowpay/outbox-publisher/internal/errors"
 	"flowpay/outbox-publisher/internal/kafka"
 	"flowpay/outbox-publisher/internal/repo"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/tracing"
 	"time"
@@ -21,10 +21,11 @@ type OutboxWorker struct {
 	paymentInitatedKafkaProducer kafka.KafkaProducer
 	offerInititatedKafkaProducer kafka.KafkaProducer
 	paymentSuccessKafkaProducer  kafka.KafkaProducer
+	timelinePublisher            *notifications.TimelinePublisher
 	batchSize                    int
 }
 
-func NewOutboxWorker(db *sql.DB, outboxRepo repo.OutboxEventRepository, idempotencyRepo repo.PaymentIdempotencyRepository, paymentInitatedKafkaProducer kafka.KafkaProducer, offerInititatedKafkaProducer kafka.KafkaProducer, paymentSuccessKafkaProducer kafka.KafkaProducer) *OutboxWorker {
+func NewOutboxWorker(db *sql.DB, outboxRepo repo.OutboxEventRepository, idempotencyRepo repo.PaymentIdempotencyRepository, paymentInitatedKafkaProducer kafka.KafkaProducer, offerInititatedKafkaProducer kafka.KafkaProducer, paymentSuccessKafkaProducer kafka.KafkaProducer, timelinePublisher *notifications.TimelinePublisher) *OutboxWorker {
 	return &OutboxWorker{
 		db:                           db,
 		outboxRepo:                   outboxRepo,
@@ -32,6 +33,7 @@ func NewOutboxWorker(db *sql.DB, outboxRepo repo.OutboxEventRepository, idempote
 		paymentInitatedKafkaProducer: paymentInitatedKafkaProducer,
 		offerInititatedKafkaProducer: offerInititatedKafkaProducer,
 		paymentSuccessKafkaProducer:  paymentSuccessKafkaProducer,
+		timelinePublisher:            timelinePublisher,
 		batchSize:                    10,
 	}
 }
@@ -121,25 +123,26 @@ func (w *OutboxWorker) processEvent(ctx context.Context, event domain.OutboxEven
 		}
 	}()
 
-	var eventPayload domain.OutboxEventType
+	recognizedEventType := true
 
-	if err := json.Unmarshal([]byte(event.Payload), &eventPayload); err != nil {
-		return err
-	}
-
-	switch eventPayload.EventType {
+	switch event.EventType {
 	case "offer_initiated":
 		err = w.offerInititatedKafkaProducer.Publish(ctx, event.ID, event.AggregateID, []byte(event.Payload))
 	case "payment_initiated":
 		err = w.paymentInitatedKafkaProducer.Publish(ctx, event.ID, event.AggregateID, []byte(event.Payload))
 	case "offer_applicable_payment_success", "payment_success":
 		err = w.paymentSuccessKafkaProducer.Publish(ctx, event.ID, event.AggregateID, []byte(event.Payload))
-
+	default:
+		recognizedEventType = false
 	}
 
 	if err != nil {
 		err = flowpayOutboxErrors.ErrKafkaPublishFailed
 		return err
+	}
+
+	if recognizedEventType {
+		w.timelinePublisher.Publish(ctx, outboxPublisherConstants.ServiceName, event.AggregateID, notifications.StepKafkaPublished, notifications.StatusSuccess, event.TraceID, event.RequestID)
 	}
 
 	err = w.outboxRepo.MarkPublished(ctx, tx, event.ID)

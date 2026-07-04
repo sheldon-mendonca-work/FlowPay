@@ -31,7 +31,7 @@ func NewAccountServiceClient(baseURL string) *AccountServiceClient {
 	return &AccountServiceClient{
 		baseURL: baseURL,
 		httpClient: &http.Client{
-			Timeout: 5 * time.Second,
+			Timeout: 16500 * time.Millisecond,
 		},
 	}
 }

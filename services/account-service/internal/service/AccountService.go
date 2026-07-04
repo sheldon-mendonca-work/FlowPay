@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"flowpay/account-service/internal/domain"
 	"flowpay/account-service/internal/dto"
@@ -19,6 +20,7 @@ type AccountService struct {
 	userRepo         *repository.UserRepository
 	accountRepo      *repository.AccountsRepository
 	defaultCredsRepo *repository.DefaultCredentialsRepository
+	transactionsRepo *repository.TransactionsRepository
 }
 
 func NewAccountService(
@@ -27,6 +29,7 @@ func NewAccountService(
 	userRepo *repository.UserRepository,
 	accountRepo *repository.AccountsRepository,
 	defaultCredsRepo *repository.DefaultCredentialsRepository,
+	transactionsRepo *repository.TransactionsRepository,
 ) *AccountService {
 	return &AccountService{
 		db:               db,
@@ -34,6 +37,7 @@ func NewAccountService(
 		userRepo:         userRepo,
 		accountRepo:      accountRepo,
 		defaultCredsRepo: defaultCredsRepo,
+		transactionsRepo: transactionsRepo,
 	}
 }
 
@@ -366,6 +370,53 @@ func (s *AccountService) GetDefaultCompanies(ctx context.Context) (*dto.ListDefa
 		return nil, err
 	}
 	return &dto.ListDefaultCompaniesResponse{Companies: items}, nil
+}
+
+func (s *AccountService) GetBalance(ctx context.Context, accountID string) (*dto.BalanceResponse, error) {
+	account, err := s.accountRepo.FindByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, accountErrors.ErrAccountNotFound
+	}
+	return &dto.BalanceResponse{Balance: account.Balance, Currency: account.Currency}, nil
+}
+
+func (s *AccountService) GetTransactions(ctx context.Context, accountID string, page, pageSize int) (*dto.TransactionsListResponse, error) {
+	account, err := s.accountRepo.FindByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, accountErrors.ErrAccountNotFound
+	}
+
+	transactions, total, err := s.transactionsRepo.ListPagedByAccountID(ctx, accountID, page, pageSize)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.TransactionListItem, 0, len(transactions))
+	for _, t := range transactions {
+		items = append(items, dto.TransactionListItem{
+			TransactionID:       t.ID,
+			PaymentID:           t.PaymentID,
+			Type:                t.Type,
+			TransactionCategory: t.TransactionCategory,
+			Amount:              t.Amount,
+			Currency:            t.Currency,
+			Status:              t.Status,
+			CreatedAt:           t.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return &dto.TransactionsListResponse{
+		Transactions: items,
+		Total:        total,
+		Page:         page,
+		PageSize:     pageSize,
+	}, nil
 }
 
 func generateID() (string, error) {

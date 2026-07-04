@@ -7,6 +7,7 @@ import (
 	"flowpay/payment-executor/internal/kafka"
 	"flowpay/payment-executor/internal/repository"
 	"flowpay/payment-executor/internal/service"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/utils"
 	"log"
 	"os"
@@ -25,6 +26,11 @@ func main() {
 	idempotencyRepository := repository.NewPaymentIdempotencyRepository(db)
 	outboxEventsRepository := repository.NewOutboxEventsRepository(db)
 
+	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
+	notificationTimelineKafkaTopic := utils.GetEnv("NOTIFICATION_TIMELINE_KAFKA_TOPIC", "notification.timeline")
+	timelinePublisher := notifications.NewTimelinePublisher(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic)
+	defer timelinePublisher.Close()
+
 	paymentExecutorService := service.NewPaymentExecutorService(
 		db,
 		accountRepository,
@@ -32,11 +38,11 @@ func main() {
 		transactionRepository,
 		idempotencyRepository,
 		outboxEventsRepository,
+		timelinePublisher,
 	)
 
 	paymentHandler := handler.NewPaymentHandler(paymentExecutorService)
 
-	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
 	groupID := utils.GetEnv("KAFKA_GROUP_ID", "payment-executor-group")
 
 	ctx, stop := signal.NotifyContext(
@@ -46,10 +52,14 @@ func main() {
 	)
 	defer stop()
 
+	// Each topic gets its own consumer group ID. segmentio/kafka-go's client-side
+	// group assignment does not reliably split partitions across readers that share
+	// one group ID but subscribe to different topics - members join the group fine
+	// but end up with zero partitions assigned, so nothing is ever consumed.
 	paymentInitiatedConsumer := kafka.NewKafkaConsumer(
 		strings.Split(kafkaBroker, ","),
 		utils.GetEnv("PAYMENT_INITIATED_KAFKA_TOPIC", "payment.initiated"),
-		groupID,
+		groupID+"-payment-initiated",
 		paymentHandler.HandlePaymentInitiated,
 	)
 	defer paymentInitiatedConsumer.Close()
@@ -57,7 +67,7 @@ func main() {
 	offerReservedConsumer := kafka.NewKafkaConsumer(
 		strings.Split(kafkaBroker, ","),
 		utils.GetEnv("OFFER_RESERVED_KAFKA_TOPIC", "offer.reserved"),
-		groupID,
+		groupID+"-offer-reserved",
 		paymentHandler.HandleOfferReserved,
 	)
 	defer offerReservedConsumer.Close()
@@ -65,7 +75,7 @@ func main() {
 	offerRejectedConsumer := kafka.NewKafkaConsumer(
 		strings.Split(kafkaBroker, ","),
 		utils.GetEnv("OFFER_REJECTED_KAFKA_TOPIC", "offer.rejected"),
-		groupID,
+		groupID+"-offer-rejected",
 		paymentHandler.HandleOfferRejected,
 	)
 	defer offerRejectedConsumer.Close()

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"flowpay/account-service/internal/constants"
@@ -134,7 +136,7 @@ func (h *Handler) HandleCreateAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.CreateAccount(ctx, req)
@@ -214,7 +216,7 @@ func (h *Handler) HandleCreateCompany(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.CreateCompany(ctx, req)
@@ -278,7 +280,7 @@ func (h *Handler) HandleGetDefaultAccounts(w http.ResponseWriter, r *http.Reques
 		"error_type":  accountErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.GetDefaultAccounts(ctx)
@@ -337,7 +339,7 @@ func (h *Handler) HandleGetDefaultUsers(w http.ResponseWriter, r *http.Request) 
 		"error_type":  accountErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.GetDefaultUsers(ctx)
@@ -396,7 +398,7 @@ func (h *Handler) HandleGetDefaultCompanies(w http.ResponseWriter, r *http.Reque
 		"error_type":  accountErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.GetDefaultCompanies(ctx)
@@ -460,7 +462,7 @@ func (h *Handler) HandleGetUserInfo(w http.ResponseWriter, r *http.Request) {
 		"error_type":  accountErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.GetUserInfo(ctx, callerAccountID)
@@ -534,7 +536,7 @@ func (h *Handler) HandleGetDefaultList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.GetDefaultList(ctx, callerAccountID, req.Type)
@@ -612,7 +614,7 @@ func (h *Handler) HandleListUserAccounts(w http.ResponseWriter, r *http.Request)
 		req.PageSize = 50
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.accountService.ListUserAccounts(ctx, callerAccountID, req.Search, req.Page, req.PageSize)
@@ -723,4 +725,137 @@ func (h *Handler) HandleCreateUser(w http.ResponseWriter, r *http.Request) {
 		"duration_ms":      time.Since(start).Milliseconds(),
 	})
 	writeJSON(w, http.StatusCreated, resp)
+}
+
+func (h *Handler) HandleGetBalance(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	accountID := strings.TrimSpace(r.PathValue("id"))
+	if accountID == "" {
+		writeJSONError(w, accountErrors.ErrAccountNotFound.Error(), http.StatusNotFound)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.BalanceGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "balance_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"account_id":  accountID,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	resp, err := h.accountService.GetBalance(ctx, accountID)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "balance_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": status,
+			"outcome":     accountOutcome(status, err),
+			"error_type":  accountErrors.ToAccountErrorType(err),
+			"error":       err.Error(),
+			"account_id":  accountID,
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "balance_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"account_id":  accountID,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetTransactions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	accountID := strings.TrimSpace(r.PathValue("id"))
+	if accountID == "" {
+		writeJSONError(w, accountErrors.ErrAccountNotFound.Error(), http.StatusNotFound)
+		return
+	}
+
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 0 {
+		page = 0
+	}
+	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
+	if size <= 0 {
+		size = 50
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.TransactionsListRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "transactions_list_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"account_id":  accountID,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	resp, err := h.accountService.GetTransactions(ctx, accountID, page, size)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "transactions_list_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": status,
+			"outcome":     accountOutcome(status, err),
+			"error_type":  accountErrors.ToAccountErrorType(err),
+			"error":       err.Error(),
+			"account_id":  accountID,
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "transactions_list_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"account_id":  accountID,
+		"count":       len(resp.Transactions),
+		"total":       resp.Total,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
 }

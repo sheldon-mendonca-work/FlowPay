@@ -1,17 +1,22 @@
 package main
 
 import (
+	"context"
 	"flowpay/notification-service/internal/api"
 	"flowpay/notification-service/internal/constants"
 	"flowpay/notification-service/internal/infra"
 	"flowpay/notification-service/internal/kafka"
 	"flowpay/notification-service/internal/repository"
 	"flowpay/notification-service/internal/service"
+	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"flowpay/pkg/utils"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -25,6 +30,8 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	metrics.InitNotificationMetrics()
+
 	db := infra.InitDB()
 
 	defer db.Close()
@@ -42,21 +49,40 @@ func main() {
 
 	handler := api.NewKafkaNotificationHandler(notificationService)
 
-	notificationTimelineKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic, kafkaGroupID, handler.HandleNotificationTimeline)
+	// Each topic gets its own consumer group ID. segmentio/kafka-go's client-side
+	// group assignment does not reliably split partitions across readers that share
+	// one group ID but subscribe to different topics - members join the group fine
+	// but end up with zero partitions assigned, so nothing is ever consumed.
+	notificationTimelineKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic, kafkaGroupID+"-timeline", handler.HandleNotificationTimeline)
 	defer notificationTimelineKafkaConsumer.Close()
 
-	notificationUserKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), notificationUserKafkaTopic, kafkaGroupID, handler.HandleNotificationUser)
+	notificationUserKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), notificationUserKafkaTopic, kafkaGroupID+"-user", handler.HandleNotificationUser)
 	defer notificationUserKafkaConsumer.Close()
 
-	reconciliationEventsKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), reconciliationEventsKafkaTopic, kafkaGroupID, handler.HandleReconciliationEvents)
+	reconciliationEventsKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), reconciliationEventsKafkaTopic, kafkaGroupID+"-reconciliation", handler.HandleReconciliationEvents)
 	defer reconciliationEventsKafkaConsumer.Close()
+
+	consumerCtx, stopConsumers := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopConsumers()
+
+	for _, consumer := range []*kafka.KafkaConsumer{
+		notificationTimelineKafkaConsumer,
+		notificationUserKafkaConsumer,
+		reconciliationEventsKafkaConsumer,
+	} {
+		go func(c *kafka.KafkaConsumer) {
+			if err := c.Start(consumerCtx); err != nil {
+				log.Printf("notification-service kafka consumer stopped: %v", err)
+			}
+		}(consumer)
+	}
 
 	httpHandler := api.NewHandler(notificationService)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/notification/health", getHealthCheck)
 	mux.HandleFunc("/notification/metrics", handleMetrics)
-	mux.HandleFunc("/notification/timeline/{payment_id}", httpHandler.HandleNotificationTimelineStream)
-	log.Println("Notification service running on :8010")
-	log.Fatal(http.ListenAndServe(":8010", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	mux.HandleFunc("/notification/timeline/{trace_id}", httpHandler.HandleNotificationTimelineStream)
+	log.Println("Notification service running on :8008")
+	log.Fatal(http.ListenAndServe(":8008", tracing.TracingMiddleware(constants.ServiceName, mux)))
 }

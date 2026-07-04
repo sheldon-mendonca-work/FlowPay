@@ -281,7 +281,7 @@ func (h *Handler) HandleAuthLoginRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.authService.Login(ctx, req)
@@ -375,7 +375,7 @@ func (h *Handler) HandleAuthRefreshRoute(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.authService.Refresh(ctx, req.RefreshToken)
@@ -455,7 +455,7 @@ func (h *Handler) HandleAuthDefaultLoginRoute(w http.ResponseWriter, r *http.Req
 		"error_type":  authErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.authService.DefaultLogin(ctx, accountID)
@@ -565,7 +565,7 @@ func (h *Handler) HandleAuthDefaultLoginAccountRoute(w http.ResponseWriter, r *h
 		"error_type":   authErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.authService.DefaultLoginAccount(ctx, accountID, accountType)
@@ -677,7 +677,7 @@ func (h *Handler) HandleAuthDefaultLoginUserRoute(w http.ResponseWriter, r *http
 		"error_type":   authErrors.ErrorTypeNone,
 	})
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.authService.DefaultLoginUser(ctx, accountID, accountType)
@@ -775,7 +775,7 @@ func (h *Handler) HandleAuthLogoutRoute(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	if err := h.authService.Logout(ctx, req.RefreshToken); err != nil {

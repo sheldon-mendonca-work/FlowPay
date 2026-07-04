@@ -281,7 +281,7 @@ func (h *Handler) handleOfferRedeemPost(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	if validationError := validateOfferRedeemRequest(req, reqIdempotencyKey, offerId); validationError != nil {
@@ -405,7 +405,7 @@ func (h *Handler) handleOfferReservePost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	if validationError := validateOfferReserveRequest(req, reqIdempotencyKey, offerId); validationError != nil {
@@ -485,7 +485,7 @@ func (h *Handler) HandleGetCompanyOffers(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.offerService.GetCompanyOffers(ctx, req.CompanyID)
@@ -511,7 +511,7 @@ func (h *Handler) HandleListOffers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	resp, err := h.offerService.GetAllOffers(ctx)
@@ -547,7 +547,7 @@ func (h *Handler) HandleGetCompanyOffersSummary(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	summary, err := h.offerService.GetCompanyOffersSummary(ctx, req.CompanyID)
@@ -622,7 +622,7 @@ func (h *Handler) handleOfferPostMethod(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
 	if validationError := validateCreateOfferRequest(req, reqIdempotencyKey); validationError != nil {

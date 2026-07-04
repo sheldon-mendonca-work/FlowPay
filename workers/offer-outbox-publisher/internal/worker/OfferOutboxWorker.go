@@ -3,11 +3,13 @@ package worker
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	outboxPublisherConstants "flowpay/offer-outbox-publisher/internal/constants"
 	"flowpay/offer-outbox-publisher/internal/domain"
 	flowpayOutboxErrors "flowpay/offer-outbox-publisher/internal/errors"
 	"flowpay/offer-outbox-publisher/internal/kafka"
 	"flowpay/offer-outbox-publisher/internal/repo"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/tracing"
 	"fmt"
@@ -21,10 +23,11 @@ type OutboxWorker struct {
 	offerRedemptionIdempotencyRepository  repo.OfferRedemptionIdempotencyRepository
 	offerReservedKafkaProducer            kafka.KafkaProducer
 	offerRejectedKafkaProducer            kafka.KafkaProducer
+	timelinePublisher                     *notifications.TimelinePublisher
 	batchSize                             int
 }
 
-func NewOutboxWorker(db *sql.DB, outboxRepo repo.OfferOutboxEventRepository, offerReservationIdempotencyRepository repo.OfferReservationIdempotencyRepository, offerRedemptionIdempotencyRepository repo.OfferRedemptionIdempotencyRepository, offerReservedKafkaProducer kafka.KafkaProducer, offerRejectedKafkaProducer kafka.KafkaProducer) *OutboxWorker {
+func NewOutboxWorker(db *sql.DB, outboxRepo repo.OfferOutboxEventRepository, offerReservationIdempotencyRepository repo.OfferReservationIdempotencyRepository, offerRedemptionIdempotencyRepository repo.OfferRedemptionIdempotencyRepository, offerReservedKafkaProducer kafka.KafkaProducer, offerRejectedKafkaProducer kafka.KafkaProducer, timelinePublisher *notifications.TimelinePublisher) *OutboxWorker {
 	return &OutboxWorker{
 		db:                                    db,
 		outboxRepo:                            outboxRepo,
@@ -32,8 +35,13 @@ func NewOutboxWorker(db *sql.DB, outboxRepo repo.OfferOutboxEventRepository, off
 		offerRedemptionIdempotencyRepository:  offerRedemptionIdempotencyRepository,
 		offerReservedKafkaProducer:            offerReservedKafkaProducer,
 		offerRejectedKafkaProducer:            offerRejectedKafkaProducer,
+		timelinePublisher:                     timelinePublisher,
 		batchSize:                             100,
 	}
+}
+
+type offerOutboxPayload struct {
+	PaymentID string `json:"payment_id"`
 }
 
 func leaseExpiryFromNow() time.Time {
@@ -145,6 +153,11 @@ func (w *OutboxWorker) processReservingEvent(ctx context.Context, event domain.O
 	if err != nil {
 		err = flowpayOutboxErrors.ErrKafkaPublishFailed
 		return err
+	}
+
+	var payload offerOutboxPayload
+	if decodeErr := json.Unmarshal([]byte(event.Payload), &payload); decodeErr == nil {
+		w.timelinePublisher.Publish(ctx, outboxPublisherConstants.ServiceName, payload.PaymentID, notifications.StepKafkaPublished, notifications.StatusSuccess, event.TraceID, event.RequestID)
 	}
 
 	err = w.outboxRepo.MarkPublished(ctx, tx, event.ID)

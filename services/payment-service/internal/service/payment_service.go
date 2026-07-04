@@ -14,6 +14,7 @@ import (
 	"flowpay/payment-service/internal/dto"
 	flowpayPaymentErrors "flowpay/payment-service/internal/errors"
 	"flowpay/payment-service/internal/types"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/utils"
 )
@@ -52,6 +53,7 @@ type PaymentService struct {
 	paymentIdempotencyRepository PaymentIdempotencyRepository
 	accountRepository            AccountRepository
 	outboxEventRepository        OutboxEventRepository
+	timelinePublisher            *notifications.TimelinePublisher
 }
 
 func NewPaymentService(db *sql.DB,
@@ -60,6 +62,7 @@ func NewPaymentService(db *sql.DB,
 	paymentIdempotencyRepository PaymentIdempotencyRepository,
 	accountRepository AccountRepository,
 	outboxEventRepository OutboxEventRepository,
+	timelinePublisher *notifications.TimelinePublisher,
 ) *PaymentService {
 	return &PaymentService{
 		db:                           db,
@@ -68,6 +71,7 @@ func NewPaymentService(db *sql.DB,
 		paymentIdempotencyRepository: paymentIdempotencyRepository,
 		accountRepository:            accountRepository,
 		outboxEventRepository:        outboxEventRepository,
+		timelinePublisher:            timelinePublisher,
 	}
 }
 
@@ -529,6 +533,8 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		"duration_ms":     time.Since(start).Milliseconds(),
 	})
 	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "committed payment transaction payment_id=%s outboxEvent_id=%s idempotency_key=%s", paymentID, outboxEvent.ID, idempotencyKey)
+
+	s.timelinePublisher.Publish(ctx, paymentServiceConstants.ServiceName, paymentID, notifications.StepPaymentInitiated, notifications.StatusSuccess, traceId, requestId)
 
 	return response, nil
 }

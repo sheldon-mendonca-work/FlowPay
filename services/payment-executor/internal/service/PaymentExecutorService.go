@@ -11,6 +11,7 @@ import (
 	"flowpay/payment-executor/internal/dto"
 	flowpayPaymentErrors "flowpay/payment-executor/internal/errors"
 	"flowpay/payment-executor/internal/types"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/tracing"
 	"fmt"
@@ -51,9 +52,10 @@ type PaymentExecutorService struct {
 	transactionRepository  TransactionRepository
 	outboxEventsRepository OutboxEventsRepository
 	idempotencyRepository  IdempotencyRepository
+	timelinePublisher      *notifications.TimelinePublisher
 }
 
-func NewPaymentExecutorService(db *sql.DB, accountRepository AccountRepository, paymentRepository PaymentRepository, transactionRepository TransactionRepository, idempotencyRepository IdempotencyRepository, outboxEventsRepository OutboxEventsRepository) *PaymentExecutorService {
+func NewPaymentExecutorService(db *sql.DB, accountRepository AccountRepository, paymentRepository PaymentRepository, transactionRepository TransactionRepository, idempotencyRepository IdempotencyRepository, outboxEventsRepository OutboxEventsRepository, timelinePublisher *notifications.TimelinePublisher) *PaymentExecutorService {
 	return &PaymentExecutorService{
 		db:                     db,
 		paymentRepository:      paymentRepository,
@@ -61,6 +63,7 @@ func NewPaymentExecutorService(db *sql.DB, accountRepository AccountRepository, 
 		accountRepository:      accountRepository,
 		idempotencyRepository:  idempotencyRepository,
 		outboxEventsRepository: outboxEventsRepository,
+		timelinePublisher:      timelinePublisher,
 	}
 }
 
@@ -345,6 +348,7 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 			})
 		}
 		txClosed = true
+		r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return dto.PaymentResponseDTO{}, err
 	}
 
@@ -358,6 +362,7 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
 		}
 		txClosed = true
+		r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return dto.PaymentResponseDTO{}, err
 	}
 
@@ -404,6 +409,8 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		return rollbackTechnicalFailure("account_validation", err)
 	}
 
+	r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPaymentValidated, notifications.StatusSuccess, traceID, requestID)
+
 	// Update balances
 
 	err = r.accountRepository.UpdateBalanceForSenderAndReceiver(tx, eventCtx, senderID, receiverID, amount-discountAmount)
@@ -418,9 +425,16 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 
 	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "updated balances sender_id=%s receiver_id=%s amount=%d", senderID, receiverID, amount-discountAmount)
 
+	r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepAccountsUpdated, notifications.StatusSuccess, traceID, requestID)
+
 	offerDiscount := discountAmount
 	if cashbackAmount > 0 {
 		offerDiscount = cashbackAmount
+	}
+
+	offerType := ""
+	if offer != nil {
+		offerType = offer.OfferType
 	}
 
 	payment := domain.Payment{
@@ -431,7 +445,7 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		Amount:         amount,
 		NetAmount:      amount - discountAmount,
 		OfferID:        event.OfferID,
-		OfferType:      offer.OfferType,
+		OfferType:      offerType,
 		OfferAmount:    offerDiscount,
 		Currency:       event.Currency,
 		Status:         string(types.SUCCESS),
@@ -443,6 +457,8 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		return rollbackTechnicalFailure("payment_insert", err)
 	}
 	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "inserted payment row payment_id=%s sender_id=%s receiver_id=%s amount=%d", payment.ID, payment.SenderID, payment.ReceiverID, payment.Amount)
+
+	r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPaymentPersisted, notifications.StatusSuccess, traceID, requestID)
 
 	// Create Transacion entries for both sender and reciever
 	transactions := []domain.Transaction{}
@@ -458,9 +474,9 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 	}
 	transactions = append(transactions, receiverTransaction)
 
-	if payment.OfferType == "CASHBACK" &&
-		payment.OfferAmount > 0 {
+	isCashbackPayment := payment.OfferType == "CASHBACK" && payment.OfferAmount > 0
 
+	if isCashbackPayment {
 		poolDebitTx, _ := generatePromotionPoolDebitTransaction(
 			payment,
 			offer.PromotionPoolAccountId,
@@ -481,7 +497,29 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 	if err != nil {
 		return rollbackTechnicalFailure("transaction_insert", err)
 	}
+
+	r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepTransactionsCompleted, notifications.StatusSuccess, traceID, requestID)
+
+	if isCashbackPayment {
+		r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPromoPoolDebited, notifications.StatusSuccess, traceID, requestID)
+		r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepCashbackCredited, notifications.StatusSuccess, traceID, requestID)
+	}
+
 	// Create Outbox event
+	offerIDPtr := (*string)(nil)
+	offerTypePtr := (*string)(nil)
+	var offerAmountPtr *int64
+	reservationID := ""
+	successIdempotencyKey := event.IdempotencyKey
+
+	if offer != nil {
+		offerIDPtr = &offer.OfferID
+		offerTypePtr = &offer.OfferType
+		offerAmountPtr = offer.OfferAmount
+		reservationID = offer.ReservationID
+		successIdempotencyKey = offer.IdempotencyKey
+	}
+
 	paymentSuccessEvent := domain.PaymentSuccessEvent{
 		PaymentID:  payment.ID,
 		SenderID:   payment.SenderID,
@@ -490,11 +528,11 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		NetAmount:  payment.NetAmount,
 		RetryCount: 0,
 
-		OfferID:        &offer.OfferID,
-		OfferType:      &offer.OfferType,
-		OfferAmount:    offer.OfferAmount,
-		IdempotencyKey: offer.IdempotencyKey,
-		ReservationID:  offer.ReservationID,
+		OfferID:        offerIDPtr,
+		OfferType:      offerTypePtr,
+		OfferAmount:    offerAmountPtr,
+		IdempotencyKey: successIdempotencyKey,
+		ReservationID:  reservationID,
 
 		Currency:  payment.Currency,
 		TraceID:   traceID,
@@ -526,11 +564,13 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		"receiver_id":          paymentSuccessEvent.ReceiverID,
 		"amount":               paymentSuccessEvent.Amount,
 		"currency":             paymentSuccessEvent.Currency,
-		"offer_id":             *paymentSuccessEvent.OfferID,
+		"offer_id":             event.OfferID,
 		"reservation_id":       paymentSuccessEvent.ReservationID,
 		"retry_count":          paymentSuccessEvent.RetryCount,
 		"error_type":           flowpayPaymentErrors.ErrorTypeNone,
 	})
+
+	r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepOutboxEventCreated, notifications.StatusSuccess, traceID, requestID)
 
 	// Mark Idempotency Completed
 	response := dto.PaymentResponseDTO{
@@ -552,6 +592,7 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 	if err := tx.Commit(); err != nil {
 		rollbackDueToError = true
 		logPaymentStepFailure(eventCtx, event, "tx_commit", err)
+		r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return dto.PaymentResponseDTO{}, err
 	}
 	txClosed = true
@@ -566,6 +607,13 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		"error_type":      flowpayPaymentErrors.ErrorTypeNone,
 	})
 	logger.LogPlain(eventCtx, constants.PaymentExecutorServiceName, "committed payment transaction outboxEvent_id=%s idempotency_key=%s", event.ID, event.IdempotencyKey)
+
+	// Offer-based payments defer PAYMENT_COMPLETED until offer-service resolves
+	// the redemption (see OfferService.RedeemOffer); only the no-offer path
+	// completes here.
+	if offer == nil {
+		r.timelinePublisher.Publish(eventCtx, constants.PaymentExecutorServiceName, paymentId, notifications.StepPaymentCompleted, notifications.StatusSuccess, traceID, requestID)
+	}
 
 	return response, nil
 }

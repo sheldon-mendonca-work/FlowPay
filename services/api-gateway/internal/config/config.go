@@ -10,6 +10,7 @@ type Config struct {
 	AccountServiceURL        string
 	OfferServiceURL          string
 	ReconciliationServiceURL string
+	NotificationServiceURL   string
 	JWTSecret                string
 	Port                     string
 	AllowedOrigins           []string
@@ -22,6 +23,7 @@ func Load() Config {
 		AccountServiceURL:        utils.GetEnv("ACCOUNT_SERVICE_URL", "http://localhost:8005"),
 		OfferServiceURL:          utils.GetEnv("OFFER_SERVICE_URL", "http://localhost:8010"),
 		ReconciliationServiceURL: utils.GetEnv("RECONCILIATION_SERVICE_URL", "http://localhost:8013"),
+		NotificationServiceURL:   utils.GetEnv("NOTIFICATION_SERVICE_URL", "http://localhost:8008"),
 		JWTSecret:                utils.GetEnv("JWT_SECRET", ""),
 		Port:                     utils.GetEnv("PORT", "8000"),
 		AllowedOrigins:           utils.GetEnvSlice("ALLOWED_ORIGINS", []string{"http://localhost:5173"}),

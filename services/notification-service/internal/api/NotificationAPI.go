@@ -67,9 +67,9 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 const timelineHeartbeatInterval = 15 * time.Second
 
-// HandleNotificationTimelineStream opens a Server-Sent Events connection for a payment_id.
+// HandleNotificationTimelineStream opens a Server-Sent Events connection for a trace_id.
 // It immediately sends the current timeline snapshot, then pushes a fresh snapshot every
-// time a new step is ingested for that payment.
+// time a new step is ingested for that trace.
 func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -78,9 +78,9 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 		return
 	}
 
-	paymentID := strings.TrimSpace(r.PathValue("payment_id"))
-	if paymentID == "" {
-		WriteJSONError(w, flowpayNotificationErrors.ErrPaymentIDRequired.Error(), http.StatusBadRequest)
+	traceID := strings.TrimSpace(r.PathValue("trace_id"))
+	if traceID == "" {
+		WriteJSONError(w, flowpayNotificationErrors.ErrTraceIDRequired.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 		return
 	}
 
-	updates, unsubscribe := h.notificationService.Subscribe(paymentID)
+	updates, unsubscribe := h.notificationService.Subscribe(traceID)
 	defer unsubscribe()
 
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -98,10 +98,10 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 
-	if timeline, err := h.notificationService.GetTimeline(ctx, paymentID); err != nil {
+	if timeline, err := h.notificationService.GetTimeline(ctx, traceID); err != nil {
 		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "notification_timeline_snapshot_failed", logger.Fields{
-			"payment_id": paymentID,
-			"error":      err.Error(),
+			"trace_id": traceID,
+			"error":    err.Error(),
 		})
 	} else if writeSSEEvent(w, timeline) == nil {
 		flusher.Flush()

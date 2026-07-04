@@ -51,7 +51,7 @@ func InitDB() *sql.DB {
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(30 * time.Minute)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 16500*time.Millisecond)
 
 	defer cancel()
 

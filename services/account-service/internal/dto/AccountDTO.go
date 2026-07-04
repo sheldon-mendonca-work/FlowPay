@@ -71,6 +71,29 @@ type ListAccountsResponse struct {
 	PageSize int               `json:"page_size"`
 }
 
+type BalanceResponse struct {
+	Balance  int64  `json:"balance"`
+	Currency string `json:"currency"`
+}
+
+type TransactionListItem struct {
+	TransactionID       string `json:"transaction_id"`
+	PaymentID           string `json:"payment_id"`
+	Type                string `json:"type"`
+	TransactionCategory string `json:"transaction_category"`
+	Amount              int64  `json:"amount"`
+	Currency            string `json:"currency"`
+	Status              string `json:"status"`
+	CreatedAt           string `json:"created_at"`
+}
+
+type TransactionsListResponse struct {
+	Transactions []TransactionListItem `json:"transactions"`
+	Total        int                   `json:"total"`
+	Page         int                   `json:"page"`
+	PageSize     int                   `json:"page_size"`
+}
+
 type UserInfoResponse struct {
 	AccountID            string  `json:"account_id"`
 	AccountName          string  `json:"account_name"`

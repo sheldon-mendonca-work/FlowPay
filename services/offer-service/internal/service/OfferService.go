@@ -14,6 +14,7 @@ import (
 	offerReserveDTO "flowpay/offer-service/internal/dto/OfferReserve"
 	flowpayOfferErrors "flowpay/offer-service/internal/errors"
 	"flowpay/offer-service/internal/types"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/utils"
 	"fmt"
@@ -136,6 +137,7 @@ type OfferService struct {
 	offerOutboxRepository                 OfferOutboxRepository
 	accountRepository                     AccountsRepository
 	usersRepository                       UserRepository
+	timelinePublisher                     *notifications.TimelinePublisher
 }
 
 func NewOfferService(db *sql.DB, offerRepository OfferRepository,
@@ -149,6 +151,7 @@ func NewOfferService(db *sql.DB, offerRepository OfferRepository,
 	offerRedemptionIdempotencyRepository OfferRedemptionIdempotencyRepository,
 	accountRepository AccountsRepository,
 	offerOutboxRepository OfferOutboxRepository,
+	timelinePublisher *notifications.TimelinePublisher,
 ) *OfferService {
 	return &OfferService{
 		db:                                    db,
@@ -163,6 +166,7 @@ func NewOfferService(db *sql.DB, offerRepository OfferRepository,
 		offerReservationIdempotencyRepository: offerReservationIdempotencyRepository,
 		offerOutboxRepository:                 offerOutboxRepository,
 		accountRepository:                     accountRepository,
+		timelinePublisher:                     timelinePublisher,
 	}
 }
 
@@ -831,6 +835,8 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 			})
 		}
 		txClosed = true
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferReserved, notifications.StatusFailed, traceID, requestID)
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return offerReserveDTO.OfferReservationResponseDTO{}, err
 	}
 
@@ -905,6 +911,8 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
 		}
 		txClosed = true
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferReserved, notifications.StatusFailed, traceID, requestID)
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return offerReserveDTO.OfferReservationResponseDTO{}, err
 	}
 
@@ -965,6 +973,8 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 			flowpayOfferErrors.ErrOfferReservationLimitReached,
 		)
 	}
+
+	s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferEvaluated, notifications.StatusSuccess, traceID, requestID)
 
 	newOfferReserveItem := domain.OfferReservationEntity{
 		ID:             reservationId,
@@ -1103,6 +1113,8 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 		"error_type":      flowpayOfferErrors.ErrorTypeNone,
 	})
 	logger.LogPlain(ctx, constants.ServiceName, "committed offer reservation transaction reservation_id=%s, offer_id=%s", reservationId, offerID)
+
+	s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferReserved, notifications.StatusSuccess, traceID, requestID)
 
 	return response, nil
 }
@@ -1267,6 +1279,8 @@ func (s *OfferService) RedeemOffer(ctx context.Context, req offerRedeemDTO.Offer
 			})
 		}
 		txClosed = true
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferRedeemed, notifications.StatusFailed, traceID, requestID)
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
 	}
 
@@ -1280,6 +1294,8 @@ func (s *OfferService) RedeemOffer(ctx context.Context, req offerRedeemDTO.Offer
 			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
 		}
 		txClosed = true
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferRedeemed, notifications.StatusFailed, traceID, requestID)
+		s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepPaymentCompleted, notifications.StatusFailed, traceID, requestID)
 		return offerRedeemDTO.OfferRedemptionResponseDTO{}, err
 	}
 
@@ -1410,6 +1426,9 @@ func (s *OfferService) RedeemOffer(ctx context.Context, req offerRedeemDTO.Offer
 		"error_type":      flowpayOfferErrors.ErrorTypeNone,
 	})
 	logger.LogPlain(ctx, constants.ServiceName, "committed offer reservation transaction redemption_id=%s, reservation_id=%s, offer_id=%s", redemptionID, reservationID, offerID)
+
+	s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepOfferRedeemed, notifications.StatusSuccess, traceID, requestID)
+	s.timelinePublisher.Publish(ctx, constants.ServiceName, req.PaymentID, notifications.StepPaymentCompleted, notifications.StatusSuccess, traceID, requestID)
 
 	return response, nil
 }

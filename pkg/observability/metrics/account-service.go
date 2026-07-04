@@ -131,6 +131,24 @@ var AccountsListRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var BalanceGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "balance_get_request_duration_seconds",
+		Help:    "Account balance request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
+var TransactionsListRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "transactions_list_request_duration_seconds",
+		Help:    "Account transactions list request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
 func InitAccountMetrics() {
 	prometheus.MustRegister(
 		AccountCreateRequestsTotal,
@@ -148,5 +166,7 @@ func InitAccountMetrics() {
 		DefaultListGetRequestDuration,
 		AccountsListRequestDuration,
 		UserInfoGetRequestDuration,
+		BalanceGetRequestDuration,
+		TransactionsListRequestDuration,
 	)
 }

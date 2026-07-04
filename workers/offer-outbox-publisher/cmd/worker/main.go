@@ -6,9 +6,11 @@ import (
 	"flowpay/offer-outbox-publisher/internal/kafka"
 	"flowpay/offer-outbox-publisher/internal/repo"
 	"flowpay/offer-outbox-publisher/internal/worker"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/utils"
 	"log"
 	"os/signal"
+	"strings"
 	"syscall"
 )
 
@@ -26,11 +28,14 @@ func main() {
 	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
 	offerReservedKafkaTopic := utils.GetEnv("OFFER_RESERVED_KAFKA_TOPIC", "offer.reserved")
 	offerRejectedKafkaTopic := utils.GetEnv("OFFER_REJECTED_KAFKA_TOPIC", "offer.rejected")
+	notificationTimelineKafkaTopic := utils.GetEnv("NOTIFICATION_TIMELINE_KAFKA_TOPIC", "notification.timeline")
 
 	offerReservedKafkaProducer := kafka.NewProducer([]string{kafkaBroker}, offerReservedKafkaTopic)
 	offerRejectedKafkaProducer := kafka.NewProducer([]string{kafkaBroker}, offerRejectedKafkaTopic)
+	timelinePublisher := notifications.NewTimelinePublisher(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic)
+	defer timelinePublisher.Close()
 
-	outboxWorker := worker.NewOutboxWorker(db, *outboxRepository, *offerReservationentIdempotencyRepository, *offerRedemptionentIdempotencyRepository, *offerReservedKafkaProducer, *offerRejectedKafkaProducer)
+	outboxWorker := worker.NewOutboxWorker(db, *outboxRepository, *offerReservationentIdempotencyRepository, *offerRedemptionentIdempotencyRepository, *offerReservedKafkaProducer, *offerRejectedKafkaProducer, timelinePublisher)
 
 	log.Printf("transaction processor worker starting broker=%s topics=[%s , %s]", kafkaBroker, offerReservedKafkaTopic, offerRejectedKafkaTopic)
 	outboxWorker.Start(ctx)

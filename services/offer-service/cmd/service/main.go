@@ -7,6 +7,7 @@ import (
 	"flowpay/offer-service/internal/kafka"
 	"flowpay/offer-service/internal/repository"
 	"flowpay/offer-service/internal/service"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"flowpay/pkg/utils"
@@ -43,6 +44,11 @@ func main() {
 	usersRepository := repository.NewUserRepository(db)
 	accountsRepository := repository.NewAccountsRepository(db)
 
+	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
+	notificationTimelineKafkaTopic := utils.GetEnv("NOTIFICATION_TIMELINE_KAFKA_TOPIC", "notification.timeline")
+	timelinePublisher := notifications.NewTimelinePublisher(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic)
+	defer timelinePublisher.Close()
+
 	offerService := service.NewOfferService(db,
 		offerRepository,
 		companyRepository,
@@ -55,9 +61,9 @@ func main() {
 		offerRedemptionIdempotencyRepository,
 		accountsRepository,
 		offerOutboxRepository,
+		timelinePublisher,
 	)
 
-	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
 	offerInitiatedKafkaTopic := utils.GetEnv("OFFER_INITIATED_KAFKA_TOPIC", "offer.initiated")
 	paymentSuccessKafkaTopic := utils.GetEnv("PAYMENT_SUCCESS_KAFKA_TOPIC", "payment.succeeded")
 	kafkaGroupID := utils.GetEnv("KAFKA_GROUP_ID", "offer-service-group")

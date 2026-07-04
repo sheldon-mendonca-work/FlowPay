@@ -3,14 +3,17 @@ package main
 import (
 	"log"
 	"net/http"
+	"strings"
 
 	"flowpay/payment-service/internal/api"
 	paymentServiceConstants "flowpay/payment-service/internal/constants"
 	"flowpay/payment-service/internal/infra"
 	"flowpay/payment-service/internal/repository"
 	"flowpay/payment-service/internal/service"
+	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
+	"flowpay/pkg/utils"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -33,7 +36,12 @@ func main() {
 	accountRepository := repository.NewAccountRepository(db)
 	outboxEventRepository := repository.NewOutboxEventRepository(db)
 
-	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository)
+	kafkaBroker := utils.GetEnv("KAFKA_BROKER", "localhost:9094")
+	notificationTimelineKafkaTopic := utils.GetEnv("NOTIFICATION_TIMELINE_KAFKA_TOPIC", "notification.timeline")
+	timelinePublisher := notifications.NewTimelinePublisher(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic)
+	defer timelinePublisher.Close()
+
+	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository, timelinePublisher)
 	handler := api.NewHandler(paymentService)
 
 	defer db.Close()
