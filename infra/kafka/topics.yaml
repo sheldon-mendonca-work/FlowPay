@@ -28,3 +28,12 @@ topics:
 
   - name: scheduler.events
     partitions: 3
+  
+  - name: notification.timeline
+    partitions: 3
+
+  - name: notification.user
+    partitions: 3
+
+  - name: reconciliation.events
+    partitions: 3
