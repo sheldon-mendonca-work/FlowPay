@@ -9,6 +9,7 @@ import (
 	offerCreateDTO "flowpay/offer-service/internal/dto/OfferCreate"
 	offerRedeemDTO "flowpay/offer-service/internal/dto/OfferRedeem"
 	offerReserveDTO "flowpay/offer-service/internal/dto/OfferReserve"
+	offerStatusUpdateDTO "flowpay/offer-service/internal/dto/OfferStatusUpdate"
 	flowpayOfferErrors "flowpay/offer-service/internal/errors"
 	"flowpay/offer-service/internal/service"
 	"flowpay/offer-service/internal/types"
@@ -587,7 +588,7 @@ func (h *Handler) HandleOfferIdRedeemTransactions(w http.ResponseWriter, r *http
 func (h *Handler) handleOfferPostMethod(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	reqIdempotencyKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
-	statusCode := http.StatusAccepted
+	statusCode := http.StatusOK
 	traceID := strings.TrimSpace(r.Header.Get("X-Trace-Id"))
 	requestID := strings.TrimSpace(r.Header.Get("X-Request-Id"))
 
@@ -688,4 +689,129 @@ func (h *Handler) handleOfferPostMethod(w http.ResponseWriter, r *http.Request) 
 	})
 
 	writeJSON(w, http.StatusAccepted, resp)
+}
+
+func validateOfferStatusUpdateRequest(req offerStatusUpdateDTO.OfferStatusUpdateRequestDTO, offerId string) error {
+	if strings.TrimSpace(offerId) == "" {
+		return flowpayOfferErrors.ErrOfferIdRequired
+	}
+
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		return flowpayOfferErrors.ErrOfferStatusRequired
+	}
+
+	if !types.IsValidOfferLifecycleStatus(status) {
+		return flowpayOfferErrors.ErrOfferStatusInvalid
+	}
+
+	return nil
+}
+
+func (h *Handler) HandleOfferIdStatusTransactions(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.handleOfferStatusUpdatePost(w, r)
+		return
+	}
+	statusCode := http.StatusMethodNotAllowed
+	logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "offer_status_update_request_rejected", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": statusCode,
+		"outcome":     "method_not_allowed",
+		"error":       flowpayOfferErrors.ErrMethodNotAllowed,
+		"error_type":  flowpayOfferErrors.ToOfferErrorType(flowpayOfferErrors.ErrMethodNotAllowed),
+	})
+	WriteJSONError(w, flowpayOfferErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+}
+
+func (h *Handler) handleOfferStatusUpdatePost(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	offerId := strings.TrimSpace(r.PathValue("offer_id"))
+	statusCode := http.StatusOK
+	var serviceErr error
+	var req offerStatusUpdateDTO.OfferStatusUpdateRequestDTO
+
+	defer func() {
+		outcome := offerOutcome(statusCode, serviceErr)
+		metrics.OfferStatusUpdateRequestsTotal.WithLabelValues(constants.ServiceName, outcome).Inc()
+		metrics.OfferStatusUpdateRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "offer_status_update_request_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"offer_id":    offerId,
+		"error_type":  flowpayOfferErrors.ErrorTypeNone,
+	})
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		statusCode = http.StatusBadRequest
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "offer_status_update_request_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "invalid_json",
+			"offer_id":    offerId,
+			"error_type":  flowpayOfferErrors.ToOfferErrorType(flowpayOfferErrors.ErrInvalidRequestBody),
+			"error":       err.Error(),
+		})
+		WriteJSONError(w, flowpayOfferErrors.ErrInvalidRequestBody.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if validationError := validateOfferStatusUpdateRequest(req, offerId); validationError != nil {
+		statusCode = http.StatusBadRequest
+		logger.LogEvent(r.Context(), "WARN", constants.ServiceName, "offer_status_update_request_rejected", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     "validation_error",
+			"offer_id":    offerId,
+			"status":      req.Status,
+			"error_type":  flowpayOfferErrors.ToOfferErrorType(validationError),
+			"error":       validationError.Error(),
+		})
+		WriteJSONError(w, validationError.Error(), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	resp, err := h.offerService.UpdateOfferStatus(ctx, offerId, strings.TrimSpace(req.Status), strings.TrimSpace(req.UpdatedBy))
+	if err != nil {
+		message, status := offerErrorResponse(err)
+		serviceErr = err
+		statusCode = status
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "offer_status_update_failed", logger.Fields{
+			"http_method":      r.Method,
+			"http_path":        r.URL.Path,
+			"http_status":      status,
+			"http_status_text": http.StatusText(status),
+			"outcome":          offerOutcome(status, err),
+			"error_type":       flowpayOfferErrors.ToOfferErrorType(err),
+			"offer_id":         offerId,
+			"status":           req.Status,
+			"error":            err.Error(),
+			"duration_ms":      time.Since(start).Milliseconds(),
+		})
+		WriteJSONError(w, message, status)
+		return
+	}
+
+	metrics.SuccessCount.WithLabelValues(constants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusOK)).Inc()
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "offer_status_update_completed", logger.Fields{
+		"http_method":      r.Method,
+		"http_path":        r.URL.Path,
+		"http_status":      http.StatusOK,
+		"http_status_text": http.StatusText(http.StatusOK),
+		"outcome":          "success",
+		"error_type":       flowpayOfferErrors.ErrorTypeNone,
+		"offer_id":         offerId,
+		"status":           resp.Status,
+		"duration_ms":      time.Since(start).Milliseconds(),
+	})
+
+	writeJSON(w, http.StatusOK, resp)
 }

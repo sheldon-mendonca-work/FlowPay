@@ -107,7 +107,7 @@ func (r *OfferReservationsRepository) ClaimBatch(
 			SET
 				reserved_count = GREATEST(reserved_count - $1, 0),
 				updated_at = NOW()
-			WHERE offer_id = $2;
+			WHERE id = $2;
 		`
 
 		res, err := tx.ExecContext(

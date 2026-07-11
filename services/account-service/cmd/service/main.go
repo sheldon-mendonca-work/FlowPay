@@ -60,7 +60,8 @@ func main() {
 	mux.HandleFunc("/accounts/list", httpHandler.HandleListUserAccounts)
 	mux.HandleFunc("/accounts/userinfo", httpHandler.HandleGetUserInfo)
 	mux.HandleFunc("/accounts/balance/{id}", httpHandler.HandleGetBalance)
-	mux.HandleFunc("/accounts/transactions/{id}", httpHandler.HandleGetTransactions)
+	mux.HandleFunc("/accounts/transactions/payment/{paymentID}", httpHandler.HandleGetTransactionsByPaymentID)
+	mux.HandleFunc("/accounts/transactions/{accountID}", httpHandler.HandleGetTransactions)
 
 	log.Printf("Account service running on :%s", cfg.Port)
 	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))

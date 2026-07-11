@@ -94,6 +94,24 @@ type TransactionsListResponse struct {
 	PageSize     int                   `json:"page_size"`
 }
 
+// PaymentTransactionItem is a single ledger entry for a payment. Unlike
+// TransactionListItem (scoped to one known account), a payment can touch
+// several accounts (sender, receiver, promotion pool), so each entry carries
+// its own account id.
+type PaymentTransactionItem struct {
+	TransactionID string `json:"transaction_id"`
+	AccountID     string `json:"account_id"`
+	Type          string `json:"type"`
+	Amount        int64  `json:"amount"`
+	Currency      string `json:"currency"`
+	CreatedAt     string `json:"created_at"`
+}
+
+type PaymentTransactionsResponse struct {
+	PaymentID    string                   `json:"payment_id"`
+	Transactions []PaymentTransactionItem `json:"transactions"`
+}
+
 type UserInfoResponse struct {
 	AccountID            string  `json:"account_id"`
 	AccountName          string  `json:"account_name"`

@@ -60,6 +60,23 @@ var OfferReserveRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var OfferStatusUpdateRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "offer_status_update_requests_total",
+		Help: "Total number of offer status update requests by outcome.",
+	},
+	[]string{"service", "outcome"},
+)
+
+var OfferStatusUpdateRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "offer_status_update_request_duration_seconds",
+		Help:    "Offer status update request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
 func InitOfferMetrics() {
-	prometheus.MustRegister(OfferDurationMs, OfferCreationRequestsTotal, OfferCreationRequestDuration, OfferRedemptionRequestDuration, OfferRedemptionRequestsTotal, OfferReserveRequestsTotal, OfferReserveRequestDuration)
+	prometheus.MustRegister(OfferDurationMs, OfferCreationRequestsTotal, OfferCreationRequestDuration, OfferRedemptionRequestDuration, OfferRedemptionRequestsTotal, OfferReserveRequestsTotal, OfferReserveRequestDuration, OfferStatusUpdateRequestsTotal, OfferStatusUpdateRequestDuration)
 }

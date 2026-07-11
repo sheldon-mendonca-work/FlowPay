@@ -82,6 +82,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/notification/health", getHealthCheck)
 	mux.HandleFunc("/notification/metrics", handleMetrics)
+	mux.HandleFunc("/notification/timeline/payment/{paymentID}", httpHandler.HandleGetTimelineByPaymentID)
 	mux.HandleFunc("/notification/timeline/{trace_id}", httpHandler.HandleNotificationTimelineStream)
 	log.Println("Notification service running on :8008")
 	log.Fatal(http.ListenAndServe(":8008", tracing.TracingMiddleware(constants.ServiceName, mux)))

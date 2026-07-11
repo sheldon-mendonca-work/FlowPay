@@ -12,6 +12,7 @@ import (
 	offerCreateDTO "flowpay/offer-service/internal/dto/OfferCreate"
 	offerRedeemDTO "flowpay/offer-service/internal/dto/OfferRedeem"
 	offerReserveDTO "flowpay/offer-service/internal/dto/OfferReserve"
+	offerStatusUpdateDTO "flowpay/offer-service/internal/dto/OfferStatusUpdate"
 	flowpayOfferErrors "flowpay/offer-service/internal/errors"
 	"flowpay/offer-service/internal/types"
 	"flowpay/pkg/notifications"
@@ -26,6 +27,7 @@ import (
 type OfferRepository interface {
 	CreateOffer(ctx context.Context, tx *sql.Tx, newOfferItem domain.OfferEntity) error
 	GetOfferByIDForUpdate(ctx context.Context, tx *sql.Tx, offerID string) (domain.OfferEntity, error)
+	UpdateOfferStatus(ctx context.Context, tx *sql.Tx, offerID string, status string) error
 	IncrementReservedCount(
 		ctx context.Context,
 		tx *sql.Tx,
@@ -1038,8 +1040,9 @@ func (s *OfferService) ReserveOffer(ctx context.Context, req offerReserveDTO.Off
 		Amount:                 req.Amount,
 		Currency:               req.Currency,
 		PaymentIdempotencyKey:  req.PaymentIdempotencyKey,
-		PromotionPoolAccountId: req.PromotionPoolAccountId,
+		PromotionPoolAccountId: offer.PromotionPoolAccountId,
 		PaymentOwnerToken:      req.PaymentOwnerToken,
+		OfferCode:              offer.OfferCode,
 		OfferType:              offer.OfferType,
 		OfferAmount:            offer.OfferAmount,
 		OfferPercentage:        offer.OfferPercentage,
@@ -1531,6 +1534,80 @@ func (s *OfferService) GetAllOffers(ctx context.Context) (companyOffersDTO.Compa
 	}
 
 	return companyOffersDTO.CompanyOffersResponseDTO{Offers: offers}, nil
+}
+
+func (s *OfferService) UpdateOfferStatus(ctx context.Context, offerID string, status string, updatedBy string) (offerStatusUpdateDTO.OfferStatusUpdateResponseDTO, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, err
+	}
+
+	committed := false
+	defer func() {
+		if !committed {
+			tx.Rollback()
+		}
+	}()
+
+	offer, err := s.offerRepository.GetOfferByIDForUpdate(ctx, tx, offerID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, flowpayOfferErrors.ErrOfferNotFound
+		}
+		return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, err
+	}
+
+	if err := s.offerRepository.UpdateOfferStatus(ctx, tx, offerID, status); err != nil {
+		return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, err
+	}
+
+	actorID := updatedBy
+	actorType := "USER"
+	if actorID == "" {
+		actorID = "SYSTEM"
+		actorType = "SYSTEM"
+	}
+
+	metadata := map[string]interface{}{
+		"previous_status": offer.Status,
+		"new_status":      status,
+	}
+	metadataBytes, _ := json.Marshal(metadata)
+
+	eventID, err := generateRandomId()
+	if err != nil {
+		return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, err
+	}
+
+	if err := s.offerEventsRepository.CreateEvent(ctx, tx, domain.OfferEventEntity{
+		ID:        eventID,
+		OfferID:   offerID,
+		EventType: string(types.OfferEventTypeForStatus(status)),
+		ActorID:   actorID,
+		ActorType: actorType,
+		Metadata:  metadataBytes,
+	}); err != nil {
+		return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, err
+	}
+
+	if err := tx.Commit(); err != nil {
+		return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{}, err
+	}
+	committed = true
+
+	logger.LogEvent(ctx, "INFO", constants.ServiceName, "offer_status_updated", logger.Fields{
+		"offer_id":        offerID,
+		"previous_status": offer.Status,
+		"new_status":      status,
+		"updated_by":      actorID,
+		"error_type":      flowpayOfferErrors.ErrorTypeNone,
+	})
+
+	return offerStatusUpdateDTO.OfferStatusUpdateResponseDTO{
+		OfferID:   offerID,
+		Status:    status,
+		UpdatedAt: time.Now().UTC(),
+	}, nil
 }
 
 func generateRandomId() (string, error) {

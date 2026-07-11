@@ -6,5 +6,5 @@ type PaymentRequestDTO struct {
 	ReceiverID string `json:"receiver_id"`
 	Amount     int64  `json:"amount"` // minor units, e.g. paise
 	Currency   string `json:"currency"`
-	OfferId    string `json: "offer_id"`
+	OfferId    string `json:"offer_id"`
 }

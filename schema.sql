@@ -775,7 +775,7 @@ ALTER TABLE ONLY public.offer_redemptions
 --
 
 ALTER TABLE ONLY public.offer_reservations
-    ADD CONSTRAINT fk_reservation_idempotency FOREIGN KEY (idempotency_key) REFERENCES public.offer_redemption_idempotency_keys(idempotency_key);
+    ADD CONSTRAINT fk_reservation_idempotency FOREIGN KEY (idempotency_key) REFERENCES public.offer_reservation_idempotency_keys(idempotency_key);
 
 
 --

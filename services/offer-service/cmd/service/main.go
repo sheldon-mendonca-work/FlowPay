@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flowpay/offer-service/internal/api"
 	"flowpay/offer-service/internal/constants"
 	"flowpay/offer-service/internal/infra"
@@ -13,7 +14,10 @@ import (
 	"flowpay/pkg/utils"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
@@ -70,11 +74,29 @@ func main() {
 
 	handler := api.NewKafkaOfferHandler(offerService)
 
-	offerInitiatedKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), offerInitiatedKafkaTopic, kafkaGroupID, handler.HandlePaymentInitiated)
+	// Each topic gets its own consumer group ID. segmentio/kafka-go's client-side
+	// group assignment does not reliably split partitions across readers that share
+	// one group ID but subscribe to different topics - members join the group fine
+	// but end up with zero partitions assigned, so nothing is ever consumed.
+	offerInitiatedKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), offerInitiatedKafkaTopic, kafkaGroupID+"-offer-initiated", handler.HandlePaymentInitiated)
 	defer offerInitiatedKafkaConsumer.Close()
 
-	paymentSuccessKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), paymentSuccessKafkaTopic, kafkaGroupID, handler.HandlePaymentSuccess)
+	paymentSuccessKafkaConsumer := kafka.NewKafkaConsumer(strings.Split(kafkaBroker, ","), paymentSuccessKafkaTopic, kafkaGroupID+"-payment-success", handler.HandlePaymentSuccess)
 	defer paymentSuccessKafkaConsumer.Close()
+
+	consumerCtx, stopConsumers := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stopConsumers()
+
+	for _, consumer := range []*kafka.KafkaConsumer{
+		offerInitiatedKafkaConsumer,
+		paymentSuccessKafkaConsumer,
+	} {
+		go func(c *kafka.KafkaConsumer) {
+			if err := c.Start(consumerCtx); err != nil {
+				log.Printf("offer-service kafka consumer stopped: %v", err)
+			}
+		}(consumer)
+	}
 
 	httpHandler := api.NewHandler(offerService)
 
@@ -85,6 +107,7 @@ func main() {
 	mux.HandleFunc("/offers/list", httpHandler.HandleListOffers)
 	mux.HandleFunc("/offers/{offer_id}/reserve", httpHandler.HandleOfferIdReserveTransactions)
 	mux.HandleFunc("/offers/{offer_id}/redeem", httpHandler.HandleOfferIdRedeemTransactions)
+	mux.HandleFunc("/offers/{offer_id}/status", httpHandler.HandleOfferIdStatusTransactions)
 	mux.HandleFunc("/offers/companies", httpHandler.HandleGetCompanyOffers)
 	mux.HandleFunc("/offers/companies/summary", httpHandler.HandleGetCompanyOffersSummary)
 	log.Println("Offer service running on :8010")

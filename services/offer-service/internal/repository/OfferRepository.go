@@ -361,6 +361,34 @@ func (r *OfferRepository) GetOfferByIDForUpdate(ctx context.Context, tx *sql.Tx,
 	return offer, err
 }
 
+func (r *OfferRepository) UpdateOfferStatus(
+	ctx context.Context,
+	tx *sql.Tx,
+	offerID string,
+	status string,
+) error {
+	query := `
+		UPDATE offers
+		SET
+			status = $2,
+			updated_at = NOW()
+		WHERE id = $1;
+	`
+
+	res, err := tx.ExecContext(ctx, query, offerID, status)
+	if err != nil {
+		return err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rowsAffected != 1 {
+		return fmt.Errorf("offer status update failed: expected 1 row affected, got %d", rowsAffected)
+	}
+	return nil
+}
+
 func (r *OfferRepository) IncrementReservedCount(
 	ctx context.Context,
 	tx *sql.Tx,

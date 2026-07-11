@@ -419,6 +419,30 @@ func (s *AccountService) GetTransactions(ctx context.Context, accountID string, 
 	}, nil
 }
 
+func (s *AccountService) GetTransactionsByPaymentID(ctx context.Context, paymentID string) (*dto.PaymentTransactionsResponse, error) {
+	transactions, err := s.transactionsRepo.ListByPaymentID(ctx, paymentID)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.PaymentTransactionItem, 0, len(transactions))
+	for _, t := range transactions {
+		items = append(items, dto.PaymentTransactionItem{
+			TransactionID: t.ID,
+			AccountID:     t.AccountID,
+			Type:          t.Type,
+			Amount:        t.Amount,
+			Currency:      t.Currency,
+			CreatedAt:     t.CreatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return &dto.PaymentTransactionsResponse{
+		PaymentID:    paymentID,
+		Transactions: items,
+	}, nil
+}
+
 func generateID() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {

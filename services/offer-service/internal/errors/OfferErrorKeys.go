@@ -52,6 +52,8 @@ func ToOfferErrorType(err error) string {
 		errors.Is(err, ErrOfferRequestCanceled),
 		errors.Is(err, ErrAccountIdRequired),
 		errors.Is(err, ErrOfferIdRequired),
+		errors.Is(err, ErrOfferStatusRequired),
+		errors.Is(err, ErrOfferStatusInvalid),
 		errors.Is(err, ErrPaymentIdRequired),
 		errors.Is(err, ErrReservationIdRequired),
 		errors.Is(err, ErrRedemptionIdRequired),

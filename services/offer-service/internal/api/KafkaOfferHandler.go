@@ -53,6 +53,7 @@ func (h *KafkaOfferHandler) HandlePaymentInitiated(
 			SenderID:              event.SenderID,
 			ReceiverID:            event.ReceiverID,
 			PaymentIdempotencyKey: event.IdempotencyKey,
+			PaymentOwnerToken:     event.OwnerToken,
 			TraceID:               event.TraceID,
 			RequestID:             event.RequestID,
 			Amount:                event.Amount,

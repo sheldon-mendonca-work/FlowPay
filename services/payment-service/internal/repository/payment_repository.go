@@ -94,14 +94,24 @@ func (r *PaymentRepository) GetPaymentByID(ctx context.Context, paymentID string
 			receiver_id,
 			amount,
 			currency,
+			offer_id,
+			offer_benefit_amount,
+			offer_type,
+			offer_code,
+			payment_method,
 			status,
 			created_at,
-			updated_at
+			updated_at,
+			completed_at
 		FROM payments
 		WHERE id = $1;
 	`
 
 	var payment domain.Payment
+	var offerID, offerType, offerCode sql.NullString
+	var offerBenefitAmount sql.NullInt64
+	var completedAt sql.NullTime
+
 	err := r.db.QueryRowContext(ctx, query, paymentID).Scan(
 		&payment.ID,
 		&payment.IdempotencyKey,
@@ -109,10 +119,28 @@ func (r *PaymentRepository) GetPaymentByID(ctx context.Context, paymentID string
 		&payment.ReceiverID,
 		&payment.Amount,
 		&payment.Currency,
+		&offerID,
+		&offerBenefitAmount,
+		&offerType,
+		&offerCode,
+		&payment.PaymentMethod,
 		&payment.Status,
 		&payment.CreatedAt,
 		&payment.UpdatedAt,
+		&completedAt,
 	)
+	if err != nil {
+		return domain.Payment{}, err
+	}
 
-	return payment, err
+	payment.OfferID = offerID.String
+	payment.OfferType = offerType.String
+	payment.OfferCode = offerCode.String
+	payment.OfferBenefitAmount = offerBenefitAmount.Int64
+	if completedAt.Valid {
+		completedAtValue := completedAt.Time
+		payment.CompletedAt = &completedAtValue
+	}
+
+	return payment, nil
 }

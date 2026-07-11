@@ -16,6 +16,7 @@ import (
 type NotificationRepository interface {
 	InsertTimelineStep(ctx context.Context, step domain.PaymentTimelineStep) (bool, error)
 	GetTimelineStepsByTraceID(ctx context.Context, traceID string) ([]domain.PaymentTimelineStep, error)
+	GetTimelineStepsByPaymentID(ctx context.Context, paymentID string) ([]domain.PaymentTimelineStep, error)
 }
 
 type NotificationService struct {
@@ -97,9 +98,33 @@ func (s *NotificationService) GetTimeline(ctx context.Context, traceID string) (
 		return dto.PaymentTimelineDTO{}, err
 	}
 
+	timeline := timelineFromSteps(steps)
+	timeline.TraceID = traceID
+	return timeline, nil
+}
+
+// GetTimelineByPaymentID looks up the timeline by payment_id rather than trace_id,
+// for callers (e.g. the Payment Details page) that only have the payment id on hand.
+func (s *NotificationService) GetTimelineByPaymentID(ctx context.Context, paymentID string) (dto.PaymentTimelineDTO, error) {
+	if paymentID == "" {
+		return dto.PaymentTimelineDTO{}, flowpayNotificationErrors.ErrPaymentIDRequired
+	}
+
+	steps, err := s.notificationRepository.GetTimelineStepsByPaymentID(ctx, paymentID)
+	if err != nil {
+		return dto.PaymentTimelineDTO{}, err
+	}
+
+	timeline := timelineFromSteps(steps)
+	timeline.PaymentID = paymentID
+	return timeline, nil
+}
+
+func timelineFromSteps(steps []domain.PaymentTimelineStep) dto.PaymentTimelineDTO {
 	timelineSteps := make([]types.PaymentTimelineType, 0, len(steps))
 	status := types.CREATED
 	paymentID := ""
+	traceID := ""
 	for _, step := range steps {
 		timelineSteps = append(timelineSteps, types.PaymentTimelineType{
 			StepName:      step.StepName,
@@ -108,6 +133,7 @@ func (s *NotificationService) GetTimeline(ctx context.Context, traceID string) (
 		})
 		status = types.NotificationStatusEnum(step.Status)
 		paymentID = step.PaymentID
+		traceID = step.TraceID
 	}
 
 	return dto.PaymentTimelineDTO{
@@ -115,7 +141,7 @@ func (s *NotificationService) GetTimeline(ctx context.Context, traceID string) (
 		PaymentID:     paymentID,
 		Status:        status,
 		TimelineSteps: timelineSteps,
-	}, nil
+	}
 }
 
 // Subscribe registers the caller for timeline updates for a trace_id. The returned

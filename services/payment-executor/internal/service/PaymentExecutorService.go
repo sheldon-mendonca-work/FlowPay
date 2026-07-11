@@ -433,8 +433,10 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 	}
 
 	offerType := ""
+	offerCode := ""
 	if offer != nil {
 		offerType = offer.OfferType
+		offerCode = offer.OfferCode
 	}
 
 	payment := domain.Payment{
@@ -445,8 +447,10 @@ func (r *PaymentExecutorService) ExecutePayment(ctx context.Context, event domai
 		Amount:         amount,
 		NetAmount:      amount - discountAmount,
 		OfferID:        event.OfferID,
+		OfferCode:      offerCode,
 		OfferType:      offerType,
 		OfferAmount:    offerDiscount,
+		PaymentMethod:  "WALLET",
 		Currency:       event.Currency,
 		Status:         string(types.SUCCESS),
 	}
@@ -639,6 +643,7 @@ func (r *PaymentExecutorService) ExecuteOfferReservedPayment(
 		SenderID:       offer.SenderID,
 		ReceiverID:     offer.ReceiverID,
 		IdempotencyKey: offer.PaymentIdempotencyKey,
+		OwnerToken:     offer.PaymentOwnerToken,
 		TraceID:        offer.TraceID,
 		RequestID:      offer.RequestID,
 		Amount:         offer.Amount,

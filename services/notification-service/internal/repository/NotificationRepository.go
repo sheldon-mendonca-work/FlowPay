@@ -68,3 +68,29 @@ func (r *NotificationRepository) GetTimelineStepsByTraceID(ctx context.Context, 
 
 	return steps, rows.Err()
 }
+
+func (r *NotificationRepository) GetTimelineStepsByPaymentID(ctx context.Context, paymentID string) ([]domain.PaymentTimelineStep, error) {
+	query := `
+		SELECT step_name, status, completed_time, trace_id
+		FROM payment_timeline_steps
+		WHERE payment_id = $1
+		ORDER BY completed_time ASC, created_at ASC;
+	`
+
+	rows, err := r.db.QueryContext(ctx, query, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var steps []domain.PaymentTimelineStep
+	for rows.Next() {
+		step := domain.PaymentTimelineStep{PaymentID: paymentID}
+		if err := rows.Scan(&step.StepName, &step.Status, &step.CompletedTime, &step.TraceID); err != nil {
+			return nil, err
+		}
+		steps = append(steps, step)
+	}
+
+	return steps, rows.Err()
+}

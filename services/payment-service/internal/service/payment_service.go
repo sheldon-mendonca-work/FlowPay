@@ -27,6 +27,7 @@ type PaymentRepository interface {
 
 type AccountRepository interface {
 	GetAccountsBySenderReceiverId(ctx context.Context, tx *sql.Tx, senderId string, receiverId string) (map[string]domain.Account, error)
+	GetAccountsByIDs(ctx context.Context, ids []string) (map[string]domain.Account, error)
 }
 
 type TransactionRepository interface {
@@ -539,24 +540,48 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	return response, nil
 }
 
+func offerSummaryFromPayment(payment domain.Payment) *dto.OfferSummaryDTO {
+	if payment.OfferID == "" {
+		return nil
+	}
+
+	summary := &dto.OfferSummaryDTO{
+		OfferID:   payment.OfferID,
+		OfferCode: payment.OfferCode,
+		OfferType: payment.OfferType,
+	}
+
+	switch payment.OfferType {
+	case "CASHBACK":
+		summary.CashbackAmount = payment.OfferBenefitAmount
+	default:
+		summary.DiscountAmount = payment.OfferBenefitAmount
+	}
+
+	return summary
+}
+
 func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (dto.GetPaymentResponseDTO, error) {
 	payment, err := s.paymentRepository.GetPaymentByID(ctx, paymentID)
 	if err == nil {
-		return dto.GetPaymentResponseDTO{
-			PaymentID:          payment.ID,
-			IdempotencyKey:     payment.IdempotencyKey,
-			SenderID:           payment.SenderID,
-			ReceiverID:         payment.ReceiverID,
-			Amount:             payment.Amount,
-			Currency:           payment.Currency,
-			OfferID:            payment.OfferID,
-			OfferBenefitAmount: payment.OfferBenefitAmount,
-			OfferType:          payment.OfferType,
-			OfferCode:          payment.OfferCode,
-			Status:             payment.Status,
-			CreatedAt:          payment.CreatedAt,
-			UpdatedAt:          payment.UpdatedAt,
-		}, nil
+		response := dto.GetPaymentResponseDTO{
+			PaymentID:      payment.ID,
+			IdempotencyKey: payment.IdempotencyKey,
+			SenderID:       payment.SenderID,
+			ReceiverID:     payment.ReceiverID,
+			Amount:         payment.Amount,
+			Currency:       payment.Currency,
+			PaymentMethod:  payment.PaymentMethod,
+			Status:         payment.Status,
+			CreatedAt:      payment.CreatedAt,
+			UpdatedAt:      payment.UpdatedAt,
+			CompletedAt:    payment.CompletedAt,
+			Offer:          offerSummaryFromPayment(payment),
+		}
+		if err := s.attachPartyDetails(ctx, &response); err != nil {
+			return dto.GetPaymentResponseDTO{}, err
+		}
+		return response, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return dto.GetPaymentResponseDTO{}, err
@@ -573,6 +598,7 @@ func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (
 	response := dto.GetPaymentResponseDTO{
 		PaymentID:      idempotency.PaymentID,
 		IdempotencyKey: idempotency.IdempotencyKey,
+		PaymentMethod:  "WALLET",
 		Status:         paymentStatusFromIdempotency(idempotency.Status),
 		CreatedAt:      idempotency.CreatedAt,
 		UpdatedAt:      idempotency.UpdatedAt,
@@ -595,9 +621,45 @@ func (s *PaymentService) GetPaymentByID(ctx context.Context, paymentID string) (
 	response.ReceiverID = paymentInitiatedEvent.ReceiverID
 	response.Amount = paymentInitiatedEvent.Amount
 	response.Currency = paymentInitiatedEvent.Currency
-	response.OfferID = paymentInitiatedEvent.OfferID
+	if paymentInitiatedEvent.OfferID != "" {
+		response.Offer = &dto.OfferSummaryDTO{OfferID: paymentInitiatedEvent.OfferID}
+	}
+
+	if err := s.attachPartyDetails(ctx, &response); err != nil {
+		return dto.GetPaymentResponseDTO{}, err
+	}
 
 	return response, nil
+}
+
+// attachPartyDetails populates Sender/Receiver on the response with account name and
+// payment handle, looked up in a single query. SenderID/ReceiverID are left untouched.
+func (s *PaymentService) attachPartyDetails(ctx context.Context, response *dto.GetPaymentResponseDTO) error {
+	if response.SenderID == "" || response.ReceiverID == "" {
+		return nil
+	}
+
+	accounts, err := s.accountRepository.GetAccountsByIDs(ctx, []string{response.SenderID, response.ReceiverID})
+	if err != nil {
+		return err
+	}
+
+	if sender, ok := accounts[response.SenderID]; ok {
+		response.Sender = &dto.PaymentPartyDTO{
+			ID:            sender.ID,
+			Name:          sender.AccountName,
+			PaymentHandle: sender.PaymentHandle,
+		}
+	}
+	if receiver, ok := accounts[response.ReceiverID]; ok {
+		response.Receiver = &dto.PaymentPartyDTO{
+			ID:            receiver.ID,
+			Name:          receiver.AccountName,
+			PaymentHandle: receiver.PaymentHandle,
+		}
+	}
+
+	return nil
 }
 
 func paymentStatusFromIdempotency(status string) string {

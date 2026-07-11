@@ -27,13 +27,20 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 			net_amount,
 			offer_id,
 			offer_type,
+			offer_code,
 			offer_amount,
+			payment_method,
 			status,
 			created_at,
-			updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7 $8, $9, $10, $11, NOW(), NOW())
+			updated_at,
+			completed_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), NOW(), NOW())
 		 ON CONFLICT (id) DO NOTHING;
 	`
+
+	offerID := sql.NullString{String: payment.OfferID, Valid: payment.OfferID != ""}
+	offerType := sql.NullString{String: payment.OfferType, Valid: payment.OfferType != ""}
+	offerCode := sql.NullString{String: payment.OfferCode, Valid: payment.OfferCode != ""}
 
 	res, err := tx.ExecContext(ctx,
 		query,
@@ -44,9 +51,11 @@ func (r *PaymentRepository) CreatePayment(tx *sql.Tx, ctx context.Context, payme
 		payment.Amount,
 		payment.Currency,
 		payment.NetAmount,
-		payment.OfferID,
-		payment.OfferType,
+		offerID,
+		offerType,
+		offerCode,
 		payment.OfferAmount,
+		payment.PaymentMethod,
 		payment.Status,
 	)
 

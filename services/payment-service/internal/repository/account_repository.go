@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"flowpay/payment-service/internal/domain"
 	"fmt"
+
+	"github.com/lib/pq"
 )
 
 type AccountRepository struct {
@@ -75,6 +77,38 @@ func (r *AccountRepository) GetAccountsBySenderReceiverId(ctx context.Context, t
 			return nil, err
 		}
 
+		accounts[acc.ID] = acc
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return accounts, nil
+}
+
+func (r *AccountRepository) GetAccountsByIDs(ctx context.Context, ids []string) (map[string]domain.Account, error) {
+	if len(ids) == 0 {
+		return map[string]domain.Account{}, nil
+	}
+
+	query := `
+		SELECT id, account_name, payment_handle, balance, currency
+		FROM accounts
+		WHERE id = ANY($1);
+	`
+	rows, err := r.db.QueryContext(ctx, query, pq.Array(ids))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	accounts := make(map[string]domain.Account)
+	for rows.Next() {
+		var acc domain.Account
+		if err := rows.Scan(&acc.ID, &acc.AccountName, &acc.PaymentHandle, &acc.Balance, &acc.Currency); err != nil {
+			return nil, err
+		}
 		accounts[acc.ID] = acc
 	}
 

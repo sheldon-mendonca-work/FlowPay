@@ -70,8 +70,8 @@ func (h *PaymentHandler) HandlePaymentInitiated(ctx context.Context, payload kaf
 func (h *PaymentHandler) HandleOfferReserved(ctx context.Context, payload kafka.Message) error {
 	start := time.Now()
 
-	var event domain.OfferOutboxEventType
-	if err := json.Unmarshal(payload.Value, &event); err != nil {
+	var offerReserved domain.OfferReservedEvent
+	if err := json.Unmarshal(payload.Value, &offerReserved); err != nil {
 		logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "offer_reserved_decoding_kafka_message_failed", logger.Fields{
 			"topic":       payload.Topic,
 			"partition":   payload.Partition,
@@ -81,6 +81,14 @@ func (h *PaymentHandler) HandleOfferReserved(ctx context.Context, payload kafka.
 			"duration_ms": time.Since(start).Milliseconds(),
 		})
 		return err
+	}
+
+	event := domain.OfferOutboxEventType{
+		EventType:      "OFFER_RESERVED",
+		IdempotencyKey: offerReserved.IdempotencyKey,
+		Payload:        string(payload.Value),
+		TraceID:        offerReserved.TraceID,
+		RequestID:      offerReserved.RequestID,
 	}
 
 	ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)
@@ -114,8 +122,8 @@ func (h *PaymentHandler) HandleOfferReserved(ctx context.Context, payload kafka.
 func (h *PaymentHandler) HandleOfferRejected(ctx context.Context, payload kafka.Message) error {
 	start := time.Now()
 
-	var event domain.OfferOutboxEventType
-	if err := json.Unmarshal(payload.Value, &event); err != nil {
+	var offerRejected domain.OfferRejectedEvent
+	if err := json.Unmarshal(payload.Value, &offerRejected); err != nil {
 		logger.LogEvent(ctx, "ERROR", constants.PaymentExecutorServiceName, "offer_rejected_decoding_kafka_message_failed", logger.Fields{
 			"topic":       payload.Topic,
 			"partition":   payload.Partition,
@@ -125,6 +133,14 @@ func (h *PaymentHandler) HandleOfferRejected(ctx context.Context, payload kafka.
 			"duration_ms": time.Since(start).Milliseconds(),
 		})
 		return err
+	}
+
+	event := domain.OfferOutboxEventType{
+		EventType:      "OFFER_REJECTED",
+		IdempotencyKey: offerRejected.PaymentIdempotencyKey,
+		Payload:        string(payload.Value),
+		TraceID:        offerRejected.TraceID,
+		RequestID:      offerRejected.RequestID,
 	}
 
 	ctx = tracing.WithTraceAndRequestIDs(ctx, event.TraceID, event.RequestID)

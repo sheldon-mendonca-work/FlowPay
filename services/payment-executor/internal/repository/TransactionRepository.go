@@ -32,7 +32,7 @@ func (r *TransactionRepository) CreateTransactions(
 	)
 
 	for i, t := range transactions {
-		base := i*9 + 1
+		base := i*8 + 1
 
 		values = append(values,
 			fmt.Sprintf(

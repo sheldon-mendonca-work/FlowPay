@@ -794,15 +794,15 @@ func (h *Handler) HandleGetTransactions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	accountID := strings.TrimSpace(r.PathValue("id"))
+	accountID := strings.TrimSpace(r.PathValue("accountID"))
 	if accountID == "" {
 		writeJSONError(w, accountErrors.ErrAccountNotFound.Error(), http.StatusNotFound)
 		return
 	}
 
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if page < 0 {
-		page = 0
+	if page < 1 {
+		page = 1
 	}
 	size, _ := strconv.Atoi(r.URL.Query().Get("size"))
 	if size <= 0 {
@@ -855,6 +855,68 @@ func (h *Handler) HandleGetTransactions(w http.ResponseWriter, r *http.Request) 
 		"account_id":  accountID,
 		"count":       len(resp.Transactions),
 		"total":       resp.Total,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetTransactionsByPaymentID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	paymentID := strings.TrimSpace(r.PathValue("paymentID"))
+	if paymentID == "" {
+		writeJSONError(w, "payment_id is required", http.StatusBadRequest)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.TransactionsListRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_transactions_list_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"payment_id":  paymentID,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	resp, err := h.accountService.GetTransactionsByPaymentID(ctx, paymentID)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "payment_transactions_list_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": status,
+			"outcome":     accountOutcome(status, err),
+			"error_type":  accountErrors.ToAccountErrorType(err),
+			"error":       err.Error(),
+			"payment_id":  paymentID,
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_transactions_list_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"payment_id":  paymentID,
+		"count":       len(resp.Transactions),
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
 	writeJSON(w, http.StatusOK, resp)

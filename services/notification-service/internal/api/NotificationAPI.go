@@ -139,3 +139,50 @@ func writeSSEEvent(w http.ResponseWriter, timeline dto.PaymentTimelineDTO) error
 	_, err = fmt.Fprintf(w, "data: %s\n\n", payload)
 	return err
 }
+
+// HandleGetTimelineByPaymentID returns a single timeline snapshot for a payment_id.
+// Unlike HandleNotificationTimelineStream this is a plain JSON GET, not SSE - used by
+// the Payment Details page which only has the payment id, not the trace id.
+func (h *Handler) HandleGetTimelineByPaymentID(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := notificationOutcome(statusCode, serviceErr)
+		logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_timeline_lookup_completed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": statusCode,
+			"outcome":     outcome,
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+	}()
+
+	if r.Method != http.MethodGet {
+		statusCode = http.StatusMethodNotAllowed
+		WriteJSONError(w, "method not allowed", statusCode)
+		return
+	}
+
+	paymentID := strings.TrimSpace(r.PathValue("paymentID"))
+	if paymentID == "" {
+		statusCode = http.StatusBadRequest
+		serviceErr = flowpayNotificationErrors.ErrPaymentIDRequired
+		WriteJSONError(w, flowpayNotificationErrors.ErrPaymentIDRequired.Error(), statusCode)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	timeline, err := h.notificationService.GetTimelineByPaymentID(ctx, paymentID)
+	if err != nil {
+		statusCode = http.StatusInternalServerError
+		serviceErr = err
+		WriteJSONError(w, "failed to load payment timeline", statusCode)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, timeline)
+}

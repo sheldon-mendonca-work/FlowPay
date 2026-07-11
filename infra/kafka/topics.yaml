@@ -8,7 +8,7 @@ topics:
   - name: offer.reserved
     partitions: 3
 
-  - name: offer.reservation_failed
+  - name: offer.rejected
     partitions: 3
 
   - name: payment.succeeded

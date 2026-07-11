@@ -16,7 +16,7 @@ func NewTransactionsRepository(db *sql.DB) *TransactionsRepository {
 }
 
 func (r *TransactionsRepository) ListPagedByAccountID(ctx context.Context, accountID string, page, pageSize int) ([]domain.Transaction, int, error) {
-	offset := page * pageSize
+	offset := (page - 1) * pageSize
 
 	var total int
 	err := r.db.QueryRowContext(ctx, `
@@ -47,4 +47,27 @@ func (r *TransactionsRepository) ListPagedByAccountID(ctx context.Context, accou
 		items = append(items, t)
 	}
 	return items, total, rows.Err()
+}
+
+func (r *TransactionsRepository) ListByPaymentID(ctx context.Context, paymentID string) ([]domain.Transaction, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, payment_id, account_id, type, transaction_category, amount, currency, status, created_at, updated_at
+		FROM transactions
+		WHERE payment_id = $1
+		ORDER BY created_at ASC
+	`, paymentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []domain.Transaction{}
+	for rows.Next() {
+		var t domain.Transaction
+		if err := rows.Scan(&t.ID, &t.PaymentID, &t.AccountID, &t.Type, &t.TransactionCategory, &t.Amount, &t.Currency, &t.Status, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, t)
+	}
+	return items, rows.Err()
 }

@@ -38,8 +38,9 @@ type OfferReservedEvent struct {
 	Amount                 int64  `json:"amount"`
 	Currency               string `json:"currency"`
 	PaymentIdempotencyKey  string `json:"payment_idempotency_key"`
-	PromotionPoolAccountId string `json:"promotional_pool_account_id"`
+	PromotionPoolAccountId string `json:"promotion_pool_account_id"`
 
+	OfferCode            string `json:"offer_code"`
 	OfferType            string `json:"offer_type"`
 	OfferAmount          *int64 `json:"offer_amount"`
 	OfferPercentage      *int16 `json:"offer_percentage"`

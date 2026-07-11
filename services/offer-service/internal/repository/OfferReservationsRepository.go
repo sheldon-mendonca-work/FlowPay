@@ -119,7 +119,7 @@ func (r *OfferReservationsRepository) MarkReservationAsRedeemed(ctx context.Cont
 	query := `
 		UPDATE offer_reservations
 		SET
-			status = 'REDEEMED'
+			status = 'REDEEMED',
 			updated_at = NOW()
 		WHERE id = $1
 		  AND status = 'RESERVED';

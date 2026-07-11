@@ -30,6 +30,8 @@ var (
 	ErrReservationIdRequired            = errors.New("reservation_id_missing")
 	ErrRedemptionIdRequired             = errors.New("redemption_id_missing")
 	ErrOfferIdRequired                  = errors.New("offer_id_missing")
+	ErrOfferStatusRequired              = errors.New("offer_status_missing")
+	ErrOfferStatusInvalid               = errors.New("offer_status_invalid")
 	ErrOfferNotActive                   = errors.New("offer_not_active")
 	ErrOfferExpired                     = errors.New("offer_expired")
 	ErrOfferNotStarted                  = errors.New("offer_not_started")

@@ -13,7 +13,9 @@ type Payment struct {
 	OfferBenefitAmount int64
 	OfferType          string
 	OfferCode          string
+	PaymentMethod      string
 	Status             string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+	CompletedAt        *time.Time
 }
