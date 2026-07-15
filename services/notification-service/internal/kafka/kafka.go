@@ -8,6 +8,7 @@ import (
 	"flowpay/notification-service/internal/domain"
 	flowpayNotificationErrors "flowpay/notification-service/internal/errors"
 	"flowpay/pkg/observability/logger"
+	"time"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -27,6 +28,7 @@ func NewKafkaConsumer(brokers []string, topic string, groupID string, handler Ha
 			GroupID:        groupID,
 			MinBytes:       10e3,
 			MaxBytes:       10e6,
+			MaxWait:        250 * time.Millisecond,
 			CommitInterval: 0,
 		}),
 		handler: handler,

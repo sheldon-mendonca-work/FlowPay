@@ -101,7 +101,8 @@ func (w *OfferExpiryWorker) processBatch(ctx context.Context) error {
 }
 
 func (w *OfferExpiryWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	// ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	logger.LogEvent(

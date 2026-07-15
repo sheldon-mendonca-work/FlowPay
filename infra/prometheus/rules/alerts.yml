@@ -1,0 +1,109 @@
+groups:
+  - name: flowpay-availability
+    rules:
+      - alert: ServiceDown
+        expr: up{job=~"flowpay-.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} is down"
+          description: "Prometheus has not been able to scrape {{ $labels.job }} ({{ $labels.instance }}) for more than 1 minute."
+
+  - name: flowpay-error-rates
+    rules:
+      - alert: PaymentHighErrorRate
+        expr: >
+          (
+            sum by (service) (rate(payment_requests_total{outcome!="success"}[5m]))
+            /
+            sum by (service) (rate(payment_requests_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High payment failure rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} payment failure rate is {{ $value | humanizePercentage }} over the last 5m."
+
+      - alert: OfferRedemptionHighErrorRate
+        expr: >
+          (
+            sum by (service) (rate(offer_redemption_requests_total{outcome!="success"}[5m]))
+            /
+            sum by (service) (rate(offer_redemption_requests_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High offer redemption failure rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} offer redemption failure rate is {{ $value | humanizePercentage }} over the last 5m."
+
+      - alert: AuthLoginHighErrorRate
+        expr: >
+          (
+            sum by (service) (rate(auth_login_requests_total{outcome!="success"}[5m]))
+            /
+            sum by (service) (rate(auth_login_requests_total[5m]))
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High login failure rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} login failure rate is {{ $value | humanizePercentage }} over the last 5m."
+
+      - alert: GatewayHighErrorRate
+        expr: >
+          (
+            sum by (service) (rate(gateway_requests_total{outcome!="success"}[5m]))
+            /
+            sum by (service) (rate(gateway_requests_total[5m]))
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High gateway error rate for downstream {{ $labels.service }}"
+          description: "API gateway is seeing a {{ $value | humanizePercentage }} error rate for {{ $labels.service }} over the last 5m."
+
+  - name: flowpay-latency
+    rules:
+      - alert: PaymentHighLatencyP99
+        expr: histogram_quantile(0.99, sum by (le, service) (rate(payment_request_duration_seconds_bucket[5m]))) > 1.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Payment p99 latency is elevated on {{ $labels.service }}"
+          description: "p99 payment request latency is {{ $value }}s over the last 5m (threshold 1.5s)."
+
+      - alert: GatewayHighLatencyP99
+        expr: histogram_quantile(0.99, sum by (le, service) (rate(gateway_request_duration_ms_bucket[5m]))) > 800
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway p99 latency is elevated for {{ $labels.service }}"
+          description: "p99 gateway request latency is {{ $value }}ms over the last 5m (threshold 800ms)."
+
+  - name: flowpay-reconciliation
+    rules:
+      - alert: ReconciliationRunFailed
+        expr: increase(reconciliation_failures_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Reconciliation run failed"
+          description: "At least one reconciliation run has failed in the last 15 minutes."
+
+      - alert: ReconciliationAnomaliesDetected
+        expr: increase(reconciliation_anomalies_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Reconciliation anomalies detected"
+          description: "Reconciliation has flagged {{ $value }} new anomalies in the last 15 minutes."

@@ -175,7 +175,8 @@ func (w *OutboxWorker) processReservingEvent(ctx context.Context, event domain.O
 }
 
 func (w *OutboxWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(2 * time.Second)
+	// ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {

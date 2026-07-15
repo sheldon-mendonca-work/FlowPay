@@ -1,19 +1,58 @@
 global:
-  scrape_interval: 5s
+  scrape_interval: 10s
+  scrape_timeout: 5s
+  evaluation_interval: 10s
+
+rule_files:
+  - /etc/prometheus/rules/alerts.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: []
 
 scrape_configs:
-  - job_name: "flowpay-services"
+  - job_name: "flowpay-api-gateway"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8000
+
+  - job_name: "flowpay-payment-service"
     metrics_path: /metrics
     static_configs:
       - targets:
           - host.docker.internal:8001
-  - job_name: "flowpay-reconciliation"
-    metrics_path: /metrics
-    static_configs:
-      - targets:
-          - host.docker.internal:8004
-  - job_name: "flowpay-offer-service"
+
+  - job_name: "flowpay-account-service"
     metrics_path: /metrics
     static_configs:
       - targets:
           - host.docker.internal:8005
+
+  - job_name: "flowpay-auth-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8007
+
+  - job_name: "flowpay-notification-service"
+    metrics_path: /notification/metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8008
+
+  - job_name: "flowpay-offer-service"
+    metrics_path: /offers/metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8010
+
+  - job_name: "flowpay-reconciliation-service"
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:8013
+
+  # payment-executor (:8002) does not expose a /metrics endpoint yet.
+  # Add a job here once it's instrumented.

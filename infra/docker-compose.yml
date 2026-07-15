@@ -59,7 +59,7 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
 
       KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
-      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://192.168.0.106:9094"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
 
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
 
@@ -146,6 +146,8 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/rules:/etc/prometheus/rules
+      - prometheus_data:/prometheus
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
     depends_on:
@@ -162,8 +164,47 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards/json
+    depends_on:
+      - prometheus
+      - loki
+
+  # ----------------------------
+  # 📜 Loki (Log storage)
+  # ----------------------------
+  loki:
+    image: grafana/loki:latest
+    container_name: flowpay-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki-config.yml:/etc/loki/local-config.yaml
+      - loki_data:/loki
+    command:
+      - "-config.file=/etc/loki/local-config.yaml"
+
+  # ----------------------------
+  # 📤 Promtail (Log shipper)
+  # ----------------------------
+  promtail:
+    image: grafana/promtail:latest
+    container_name: flowpay-promtail
+    restart: unless-stopped
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ../logs:/var/log/flowpay:ro
+      - promtail_positions:/tmp
+    command:
+      - "-config.file=/etc/promtail/config.yml"
+    depends_on:
+      - loki
 
   # ----------------------------
   # 🔍 Jaeger (Tracing)
@@ -182,3 +223,6 @@ volumes:
   redis_data:
   grafana_data:
   kafka_data:
+  loki_data:
+  promtail_positions:
+  prometheus_data:

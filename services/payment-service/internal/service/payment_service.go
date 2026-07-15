@@ -535,7 +535,11 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	})
 	logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "committed payment transaction payment_id=%s outboxEvent_id=%s idempotency_key=%s", paymentID, outboxEvent.ID, idempotencyKey)
 
-	s.timelinePublisher.Publish(ctx, paymentServiceConstants.ServiceName, paymentID, notifications.StepPaymentInitiated, notifications.StatusSuccess, traceId, requestId)
+	go func() {
+		publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		s.timelinePublisher.Publish(publishCtx, paymentServiceConstants.ServiceName, paymentID, notifications.StepPaymentInitiated, notifications.StatusSuccess, traceId, requestId)
+	}()
 
 	return response, nil
 }

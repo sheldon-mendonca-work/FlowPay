@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -88,7 +89,7 @@ func New(target, serviceName string) http.Handler {
 		defer func() {
 			durationMs := float64(time.Since(start).Milliseconds())
 			outcome := "success"
-			if ctx.Err() != nil {
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				outcome = "timeout"
 			} else if rec.statusCode >= 400 {
 				outcome = "error"

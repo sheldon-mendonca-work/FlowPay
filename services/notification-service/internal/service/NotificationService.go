@@ -2,13 +2,14 @@ package service
 
 import (
 	"context"
-	"crypto/rand"
+	cryptorand "crypto/rand"
 	"database/sql"
 	"flowpay/notification-service/internal/domain"
 	"flowpay/notification-service/internal/dto"
 	flowpayNotificationErrors "flowpay/notification-service/internal/errors"
 	"flowpay/notification-service/internal/types"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -125,15 +126,33 @@ func timelineFromSteps(steps []domain.PaymentTimelineStep) dto.PaymentTimelineDT
 	status := types.CREATED
 	paymentID := ""
 	traceID := ""
-	for _, step := range steps {
+
+	var firstCompletedTime, previousCompletedTime time.Time
+	for i, step := range steps {
+		var completedStepTime *int64
+		if i > 0 {
+			ms := step.CompletedTime.Sub(previousCompletedTime).Milliseconds()
+			completedStepTime = &ms
+		} else {
+			firstCompletedTime = step.CompletedTime
+		}
+		previousCompletedTime = step.CompletedTime
+
 		timelineSteps = append(timelineSteps, types.PaymentTimelineType{
-			StepName:      step.StepName,
-			Status:        types.NotificationStatusEnum(step.Status),
-			CompletedTime: step.CompletedTime,
+			StepName:          step.StepName,
+			Status:            types.NotificationStatusEnum(step.Status),
+			CompletedTime:     step.CompletedTime,
+			CompletedStepTime: completedStepTime,
 		})
 		status = types.NotificationStatusEnum(step.Status)
 		paymentID = step.PaymentID
 		traceID = step.TraceID
+	}
+
+	var totalTime *int64
+	if len(steps) > 0 && (status == types.SUCCESS || status == types.FAILED) {
+		ms := previousCompletedTime.Sub(firstCompletedTime).Milliseconds()
+		totalTime = &ms
 	}
 
 	return dto.PaymentTimelineDTO{
@@ -141,6 +160,31 @@ func timelineFromSteps(steps []domain.PaymentTimelineStep) dto.PaymentTimelineDT
 		PaymentID:     paymentID,
 		Status:        status,
 		TimelineSteps: timelineSteps,
+		TotalTime:     totalTime,
+	}
+}
+
+// GetFlowpayMetrics returns a snapshot of platform-wide metrics for the FlowPay
+// dashboard. Backed by dummy data for now, pending real aggregation.
+func (s *NotificationService) GetFlowpayMetrics(ctx context.Context) dto.FlowpayMetricsDTO {
+	success := int64(120 + rand.Intn(20))
+	failed := int64(3 + rand.Intn(5))
+	processing := int64(rand.Intn(8))
+
+	return dto.FlowpayMetricsDTO{
+		PaymentsTotal:      success + failed + processing,
+		PaymentsSuccess:    success,
+		PaymentsFailed:     failed,
+		PaymentsProcessing: processing,
+
+		OffersReserved: int64(40 + rand.Intn(15)),
+		OffersRedeemed: int64(25 + rand.Intn(15)),
+
+		PaymentsToday: success + failed,
+
+		KafkaStatus:          dto.ConnectionStatusConnected,
+		OfferServiceStatus:   dto.ConnectionStatusConnected,
+		PaymentServiceStatus: dto.ConnectionStatusConnected,
 	}
 }
 
@@ -194,7 +238,7 @@ func (s *NotificationService) publish(traceID string, timeline dto.PaymentTimeli
 
 func generateRandomId() (string, error) {
 	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	if _, err := cryptorand.Read(b[:]); err != nil {
 		return "", fmt.Errorf("generate random id: %w", err)
 	}
 

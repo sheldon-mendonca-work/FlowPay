@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flowpay/notification-service/internal/constants"
-	"flowpay/notification-service/internal/dto"
 	flowpayNotificationErrors "flowpay/notification-service/internal/errors"
 	"flowpay/notification-service/internal/service"
 	"flowpay/pkg/observability/logger"
@@ -66,6 +65,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 }
 
 const timelineHeartbeatInterval = 15 * time.Second
+const flowpayMetricsInterval = 10 * time.Second
 
 // HandleNotificationTimelineStream opens a Server-Sent Events connection for a trace_id.
 // It immediately sends the current timeline snapshot, then pushes a fresh snapshot every
@@ -131,8 +131,8 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 	}
 }
 
-func writeSSEEvent(w http.ResponseWriter, timeline dto.PaymentTimelineDTO) error {
-	payload, err := json.Marshal(timeline)
+func writeSSEEvent(w http.ResponseWriter, event any) error {
+	payload, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
@@ -185,4 +185,45 @@ func (h *Handler) HandleGetTimelineByPaymentID(w http.ResponseWriter, r *http.Re
 	}
 
 	writeJSON(w, http.StatusOK, timeline)
+}
+
+// HandleFlowpayMetricsStream opens an SSE connection pushing a FlowpayMetricsDTO
+// snapshot immediately, then again every flowpayMetricsInterval.
+func (h *Handler) HandleFlowpayMetricsStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		WriteJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		WriteJSONError(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	ctx := r.Context()
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	if writeSSEEvent(w, h.notificationService.GetFlowpayMetrics(ctx)) == nil {
+		flusher.Flush()
+	}
+
+	ticker := time.NewTicker(flowpayMetricsInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if writeSSEEvent(w, h.notificationService.GetFlowpayMetrics(ctx)) != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	}
 }

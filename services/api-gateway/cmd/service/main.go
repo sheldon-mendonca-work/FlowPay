@@ -63,10 +63,11 @@ func main() {
 	mux.Handle("/offers", withJWT(offerProxy))
 	mux.Handle("/offers/", withJWT(offerProxy))
 
-	// notification-service timeline SSE — JWT via header or ?token= query
+	// notification-service SSE endpoints — JWT via header or ?token= query
 	// param, since EventSource can't set an Authorization header. More
-	// specific than /notification/ above, so it wins for this subpath.
+	// specific than /notification/ above, so they win for these subpaths.
 	mux.Handle("/notification/timeline/", withJWTSSE(notificationProxy))
+	mux.Handle("/notification/fp/metrics", withJWTSSE(notificationProxy))
 
 	// notification-service — JWT required
 	mux.Handle("/notification", withJWT(notificationProxy))

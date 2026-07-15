@@ -52,9 +52,10 @@ type TimelinePublisher struct {
 func NewTimelinePublisher(brokers []string, topic string) *TimelinePublisher {
 	return &TimelinePublisher{
 		writer: &kafka.Writer{
-			Addr:     kafka.TCP(brokers...),
-			Topic:    topic,
-			Balancer: &kafka.Hash{},
+			Addr:         kafka.TCP(brokers...),
+			Topic:        topic,
+			Balancer:     &kafka.Hash{},
+			BatchTimeout: 10 * time.Millisecond,
 		},
 	}
 }
