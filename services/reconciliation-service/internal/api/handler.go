@@ -305,6 +305,33 @@ func (h *Handler) HandleIndividualTransactionCheck(w http.ResponseWriter, r *htt
 	}
 }
 
+func (h *Handler) HandleOfferChecks(w http.ResponseWriter, r *http.Request) {
+	h.HandleReconciliationChecks(w, r, "all_offers", h.reconciliationService.RunOfferChecks)
+}
+
+func (h *Handler) HandleIndividualOfferCheck(w http.ResponseWriter, r *http.Request) {
+	offerCheckType := r.PathValue("offer_check_type")
+
+	switch offerCheckType {
+	case constants.OfferSuccessfulPaymentsWithUnredeemedReservationCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferSuccessfulPaymentsWithUnredeemedReservation)
+	case constants.OfferRedeemedReservationsWithoutSuccessfulPaymentCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferRedeemedReservationsWithoutSuccessfulPayment)
+	case constants.OfferReservationsWithoutPaymentCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferReservationsWithoutPayment)
+	case constants.OfferRedemptionsWithoutPaymentCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferRedemptionsWithoutPayment)
+	case constants.OfferExpiredReservationsStuckReservedCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferExpiredReservationsStuckReserved)
+	case constants.OfferReservationRedemptionStatusMismatchCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferReservationRedemptionStatusMismatch)
+	case constants.OfferRedeemedCountDriftCheckName:
+		h.HandleReconciliationChecks(w, r, offerCheckType, h.reconciliationService.GetOfferRedeemedCountDrift)
+	default:
+		h.writeUnknownCheck(w, r)
+	}
+}
+
 func (h *Handler) HandleAllReconciliationChecks(w http.ResponseWriter, r *http.Request) {
 	h.HandleReconciliationChecks(w, r, "all_reconciliation", h.reconciliationService.RunAllChecks)
 }

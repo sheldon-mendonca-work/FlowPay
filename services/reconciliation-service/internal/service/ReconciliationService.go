@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	idempotencyCheck "flowpay/reconciliation-service/internal/checks/idempotency"
+	offerCheck "flowpay/reconciliation-service/internal/checks/offer"
 	"flowpay/reconciliation-service/internal/checks/outbox"
 	"flowpay/reconciliation-service/internal/checks/payment"
 	transactioncheck "flowpay/reconciliation-service/internal/checks/transaction"
@@ -20,6 +21,7 @@ type ReconciliationService struct {
 	idempotencyRepository *repository.PaymentIdempotencyRepository
 	transactionRepository *repository.TransactionRepository
 	accountRepository     *repository.AccountRepository
+	offerRepository       *repository.OfferRepository
 }
 
 func NewReconciliationService(
@@ -29,6 +31,7 @@ func NewReconciliationService(
 	idempotencyRepository *repository.PaymentIdempotencyRepository,
 	transactionRepository *repository.TransactionRepository,
 	accountRepository *repository.AccountRepository,
+	offerRepository *repository.OfferRepository,
 ) *ReconciliationService {
 	return &ReconciliationService{
 		db:                    db,
@@ -37,6 +40,7 @@ func NewReconciliationService(
 		idempotencyRepository: idempotencyRepository,
 		transactionRepository: transactionRepository,
 		accountRepository:     accountRepository,
+		offerRepository:       offerRepository,
 	}
 }
 
@@ -630,12 +634,179 @@ func (s *ReconciliationService) RunTransactionChecks(ctx context.Context, checkT
 	)
 }
 
+func (s *ReconciliationService) GetOfferSuccessfulPaymentsWithUnredeemedReservation(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	payments, err := s.offerRepository.GetSuccessfulPaymentsWithUnredeemedReservation(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildSuccessfulPaymentsWithUnredeemedReservationAnomalies(payments)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) GetOfferRedeemedReservationsWithoutSuccessfulPayment(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	reservations, err := s.offerRepository.GetRedeemedReservationsWithoutSuccessfulPayment(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildRedeemedReservationsWithoutSuccessfulPaymentAnomalies(reservations)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) GetOfferReservationsWithoutPayment(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	reservations, err := s.offerRepository.GetReservationsWithoutPayment(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildReservationsWithoutPaymentAnomalies(reservations)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) GetOfferRedemptionsWithoutPayment(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	redemptions, err := s.offerRepository.GetRedemptionsWithoutPayment(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildRedemptionsWithoutPaymentAnomalies(redemptions)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) GetOfferExpiredReservationsStuckReserved(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	reservations, err := s.offerRepository.GetExpiredReservationsStuckReserved(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildExpiredReservationsStuckReservedAnomalies(reservations)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) GetOfferReservationRedemptionStatusMismatch(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	mismatches, err := s.offerRepository.GetReservationRedemptionStatusMismatch(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildReservationRedemptionStatusMismatchAnomalies(mismatches)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) GetOfferRedeemedCountDrift(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	response := make([]dto.AnomalyResponseDTO, 0)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	drifts, err := s.offerRepository.GetOfferRedeemedCountDrift(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	anomalies := offerCheck.BuildRedeemedCountDriftAnomalies(drifts)
+	response = toAnomalyResponseDTOs(response, anomalies)
+	return response, nil
+}
+
+func (s *ReconciliationService) RunOfferChecks(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
+	return s.runChecks(ctx, checkType,
+		s.GetOfferSuccessfulPaymentsWithUnredeemedReservation,
+		s.GetOfferRedeemedReservationsWithoutSuccessfulPayment,
+		s.GetOfferReservationsWithoutPayment,
+		s.GetOfferRedemptionsWithoutPayment,
+		s.GetOfferExpiredReservationsStuckReserved,
+		s.GetOfferReservationRedemptionStatusMismatch,
+		s.GetOfferRedeemedCountDrift,
+	)
+}
+
 func (s *ReconciliationService) RunAllChecks(ctx context.Context, checkType string) ([]dto.AnomalyResponseDTO, error) {
 	return s.runChecks(ctx, checkType,
 		s.RunPaymentChecks,
 		s.RunIdempotencyChecks,
 		s.RunOutboxChecks,
 		s.RunTransactionChecks,
+		s.RunOfferChecks,
 	)
 }
 

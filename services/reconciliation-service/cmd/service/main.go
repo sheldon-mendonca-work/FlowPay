@@ -33,6 +33,7 @@ func main() {
 	idempotencyRepository := repository.NewPaymentIdempotencyRepository(db)
 	transactionRepository := repository.NewTransactionRepository(db)
 	accountRepository := repository.NewAccountRepository(db)
+	offerRepository := repository.NewOfferRepository(db)
 
 	reconciliationService := service.NewReconciliationService(
 		db,
@@ -41,6 +42,7 @@ func main() {
 		idempotencyRepository,
 		transactionRepository,
 		accountRepository,
+		offerRepository,
 	)
 	handler := api.NewHandler(reconciliationService)
 
@@ -61,6 +63,9 @@ func main() {
 
 	mux.HandleFunc("/reconciliation/transactions", handler.HandleTransactionChecks)
 	mux.HandleFunc("/reconciliation/transactions/{transaction_check_type}", handler.HandleIndividualTransactionCheck)
+
+	mux.HandleFunc("/reconciliation/offers", handler.HandleOfferChecks)
+	mux.HandleFunc("/reconciliation/offers/{offer_check_type}", handler.HandleIndividualOfferCheck)
 
 	log.Println("Reconciliation service running on :8013")
 	log.Fatal(http.ListenAndServe(":8013", tracing.TracingMiddleware(constants.ServiceName, mux)))
