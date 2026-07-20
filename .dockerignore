@@ -1,0 +1,15 @@
+.git
+.gitignore
+
+.idea
+.vscode
+
+**/bin
+**/tmp
+**/logs
+**/coverage.out
+
+README.md
+
+infra/grafana/data
+infra/prometheus/data

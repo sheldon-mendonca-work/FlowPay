@@ -1,6 +1,6 @@
 module flowpay/reconciliation-service
 
-go 1.26.3
+go 1.26.5
 
 require flowpay/pkg v0.0.0
 

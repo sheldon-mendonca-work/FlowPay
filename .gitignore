@@ -9,4 +9,4 @@ start-all.sh
 logs/
 .env
 start-flowpay.sh
-*/**/.env
+**/.env

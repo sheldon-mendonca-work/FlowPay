@@ -1,4 +1,5 @@
 COMPOSE_FILE := infra/docker-compose.yml
+INFRA_COMPOSE_FILE := infra/docker-compose.services.yml
 PAYMENT_SERVICE_DIR := services/payment-service
 
 .PHONY: up down logs test

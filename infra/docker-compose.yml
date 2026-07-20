@@ -7,7 +7,7 @@ services:
   # ----------------------------
   postgres:
     image: postgres:15
-    container_name: flowpay-postgres
+    # container_name: flowpay-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -28,7 +28,7 @@ services:
   # ----------------------------
   redis:
     image: redis:7
-    container_name: flowpay-redis
+    # container_name: flowpay-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -46,8 +46,8 @@ services:
   # 📨 Kafka
   # ----------------------------
   kafka:
-    image: apache/kafka:latest
-    container_name: flowpay-kafka
+    image: apache/kafka:4.3.1
+    # container_name: flowpay-kafka
     restart: unless-stopped
 
     environment:
@@ -81,7 +81,7 @@ services:
       - kafka_data:/var/lib/kafka/data
   
   kafka-ui:
-    image: provectuslabs/kafka-ui:latest
+    image: provectuslabs/kafka-ui:v0.7.2
     ports:
       - 8080:8080
     environment:
@@ -92,10 +92,10 @@ services:
       - kafka
       
   kafka-init:
-    image: apache/kafka:latest
+    image: apache/kafka:4.3.1
     depends_on:
       kafka:
-        condition: service_started
+        condition: service_healthy
 
     volumes:
       - ./kafka/topics.yaml:/config/topics.yaml
@@ -137,8 +137,8 @@ services:
   # 📊 Prometheus
   # ----------------------------
   prometheus:
-    image: prom/prometheus:latest
-    container_name: flowpay-prometheus
+    image: prom/prometheus:v3.13.1
+    # container_name: flowpay-prometheus
     restart: unless-stopped
     ports:
       - "9090:9090"
@@ -157,8 +157,8 @@ services:
   # 📈 Grafana
   # ----------------------------
   grafana:
-    image: grafana/grafana:latest
-    container_name: flowpay-grafana
+    image: grafana/grafana:11.6.16-ubuntu
+    # container_name: flowpay-grafana
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -177,8 +177,8 @@ services:
   # 📜 Loki (Log storage)
   # ----------------------------
   loki:
-    image: grafana/loki:latest
-    container_name: flowpay-loki
+    image: grafana/loki:3.7.3
+    # container_name: flowpay-loki
     restart: unless-stopped
     ports:
       - "3100:3100"
@@ -192,8 +192,8 @@ services:
   # 📤 Promtail (Log shipper)
   # ----------------------------
   promtail:
-    image: grafana/promtail:latest
-    container_name: flowpay-promtail
+    image: grafana/promtail:3.6.11
+    # container_name: flowpay-promtail
     restart: unless-stopped
     volumes:
       - ./promtail/promtail-config.yml:/etc/promtail/config.yml
@@ -210,8 +210,8 @@ services:
   # 🔍 Jaeger (Tracing)
   # ----------------------------
   jaeger:
-    image: jaegertracing/all-in-one:latest
-    container_name: flowpay-jaeger
+    image: jaegertracing/all-in-one:1.76.0
+    # container_name: flowpay-jaeger
     restart: unless-stopped
     ports:
       - "16686:16686"   # UI
