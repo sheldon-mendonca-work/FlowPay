@@ -357,6 +357,49 @@ func (s *AccountService) GetUserByID(ctx context.Context, userID string) (*dto.U
 	return resp, nil
 }
 
+func (s *AccountService) GetUserByPaymentHandle(ctx context.Context, paymentHandle string) (*dto.UserResponse, error) {
+	account, err := s.accountRepo.FindByPaymentHandle(ctx, paymentHandle)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, accountErrors.ErrUserNotFound
+	}
+
+	user, err := s.userRepo.FindByAccountID(ctx, account.ID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, accountErrors.ErrUserNotFound
+	}
+
+	resp := &dto.UserResponse{
+		UserID:        user.ID,
+		AccountID:     account.ID,
+		Role:          user.Role,
+		AccountName:   account.AccountName,
+		PaymentHandle: account.PaymentHandle,
+		AccountType:   account.AccountType,
+		Balance:       account.Balance,
+		Currency:      account.Currency,
+	}
+
+	if user.CompanyID != "" {
+		company, err := s.companyRepo.FindByID(ctx, user.CompanyID)
+		if err != nil {
+			return nil, err
+		}
+		if company != nil {
+			resp.CompanyID = &company.ID
+			resp.CompanyName = &company.Name
+			resp.CompanyBusinessName = &company.BusinessName
+		}
+	}
+
+	return resp, nil
+}
+
 func (s *AccountService) GetDefaultList(ctx context.Context, callerAccountID, listType string) (*dto.DefaultListResponse, error) {
 	resp := &dto.DefaultListResponse{Type: listType}
 	switch listType {

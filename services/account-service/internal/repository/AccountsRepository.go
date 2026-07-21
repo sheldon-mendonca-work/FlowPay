@@ -39,6 +39,21 @@ func (r *AccountsRepository) FindByID(ctx context.Context, id string) (*domain.A
 	return &a, nil
 }
 
+func (r *AccountsRepository) FindByPaymentHandle(ctx context.Context, paymentHandle string) (*domain.Account, error) {
+	var a domain.Account
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, account_name, payment_handle, balance, currency, account_type, allow_negative_balance, created_at, updated_at
+		FROM accounts WHERE payment_handle = $1
+	`, paymentHandle).Scan(&a.ID, &a.AccountName, &a.PaymentHandle, &a.Balance, &a.Currency, &a.AccountType, &a.AllowNegativeBalance, &a.CreatedAt, &a.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
 func (r *AccountsRepository) ListPaged(ctx context.Context, excludeAccountID, search string, page, pageSize int) ([]dto.AccountListItem, int, error) {
 	searchPattern := "%" + search + "%"
 	offset := page * pageSize

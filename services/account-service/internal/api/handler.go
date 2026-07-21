@@ -851,6 +851,67 @@ func (h *Handler) HandleGetUser(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+func (h *Handler) HandleGetUserByPaymentHandle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	paymentHandle := strings.TrimSpace(r.PathValue("paymenthandle"))
+	if paymentHandle == "" {
+		writeJSONError(w, accountErrors.ErrUserNotFound.Error(), http.StatusNotFound)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.PaymentHandleGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_handle_get_started", logger.Fields{
+		"http_method":    r.Method,
+		"http_path":      r.URL.Path,
+		"payment_handle": paymentHandle,
+		"error_type":     accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	resp, err := h.accountService.GetUserByPaymentHandle(ctx, paymentHandle)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "payment_handle_get_failed", logger.Fields{
+			"http_method":    r.Method,
+			"http_path":      r.URL.Path,
+			"http_status":    status,
+			"outcome":        accountOutcome(status, err),
+			"error_type":     accountErrors.ToAccountErrorType(err),
+			"error":          err.Error(),
+			"payment_handle": paymentHandle,
+			"duration_ms":    time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "payment_handle_get_completed", logger.Fields{
+		"http_method":    r.Method,
+		"http_path":      r.URL.Path,
+		"http_status":    http.StatusOK,
+		"outcome":        "success",
+		"payment_handle": paymentHandle,
+		"duration_ms":    time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
 func (h *Handler) HandleGetTransactions(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)

@@ -61,6 +61,7 @@ func main() {
 	mux.HandleFunc("/accounts/userinfo", httpHandler.HandleGetUserInfo)
 	mux.HandleFunc("/accounts/balance/{id}", httpHandler.HandleGetBalance)
 	mux.HandleFunc("/accounts/user/{id}", httpHandler.HandleGetUser)
+	mux.HandleFunc("/accounts/paymenthandle/{paymenthandle}", httpHandler.HandleGetUserByPaymentHandle)
 	mux.HandleFunc("/accounts/transactions/payment/{paymentID}", httpHandler.HandleGetTransactionsByPaymentID)
 	mux.HandleFunc("/accounts/transactions/{accountID}", httpHandler.HandleGetTransactions)
 

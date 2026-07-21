@@ -149,6 +149,15 @@ var UserGetRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var PaymentHandleGetRequestDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "payment_handle_get_request_duration_seconds",
+		Help:    "User lookup by payment handle request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome"},
+)
+
 var TransactionsListRequestDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "transactions_list_request_duration_seconds",
@@ -177,6 +186,7 @@ func InitAccountMetrics() {
 		UserInfoGetRequestDuration,
 		BalanceGetRequestDuration,
 		UserGetRequestDuration,
+		PaymentHandleGetRequestDuration,
 		TransactionsListRequestDuration,
 	)
 }
