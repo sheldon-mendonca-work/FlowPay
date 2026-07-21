@@ -1,4 +1,5 @@
 COMPOSE_FILE := infra/docker-compose.yml
+MIN_COMPOSE_FILE := infra/docker-compose.infra.min.yml
 SERVICE_COMPOSE_FILE := infra/docker-compose.services.yml
 PAYMENT_SERVICE_DIR := services/payment-service
 
@@ -9,6 +10,12 @@ up:
 
 down:
 	docker compose -f $(COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) down
+
+min_up:
+	docker compose -f $(MIN_COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) up -d
+
+min_down:
+	docker compose -f $(MIN_COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) down
 
 logs:
 	docker compose -f $(COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) logs -f
