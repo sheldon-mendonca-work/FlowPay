@@ -1,15 +1,34 @@
+# Git
 .git
 .gitignore
 
+# IDE
 .idea
 .vscode
 
+# Documentation
+README.md
+project-structure.txt
+
+# Logs
+logs
+
+# Build outputs
 **/bin
+**/dist
 **/tmp
-**/logs
 **/coverage.out
 
-README.md
+# OS files
+.DS_Store
+Thumbs.db
 
-infra/grafana/data
-infra/prometheus/data
+# Local env files
+**/.env
+**/.env.*
+
+
+.codex
+.agent
+.claude
+.vscode

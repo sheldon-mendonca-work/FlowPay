@@ -10,3 +10,4 @@ logs/
 .env
 start-flowpay.sh
 **/.env
+**/server

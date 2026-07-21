@@ -2,4 +2,168 @@ name: "flowpay-services"
 
 services:
   api-gateway:
+    build:
+      context: ..
+      dockerfile: services/api-gateway/Dockerfile
     
+    environment:
+      PAYMENT_SERVICE_URL: http://payment-service:8001
+      AUTH_SERVICE_URL: http://auth-service:8007
+      OFFER_SERVICE_URL: http://offer-service:8010
+      RECONCILIATION_SERVICE_URL: http://reconciliation-service:8013
+      NOTIFICATION_SERVICE_URL: http://notification-service:8008
+      JWT_SECRET: change-me-in-production
+      PORT: 8006
+    expose:
+      - 8000
+      
+  account-service:
+    build:
+      context: ..
+      dockerfile: services/account-service/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # redis:
+      #   condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+    environment:
+      PORT: 8005
+    
+  payment-service:
+    build:
+      context: ..
+      dockerfile: services/payment-service/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # redis:
+      #   condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+    environment:
+      PORT: 8001
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_db
+      POSTGRES_SSLMODE: disable
+      REDIS_HOST: redis
+      KAFKA_BROKER: kafka:9092
+      NOTIFICATION_TIMELINE_KAFKA_TOPIC: notification.timeline
+
+  auth-service:
+    build:
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      PORT: 8007
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_db
+      POSTGRES_SSLMODE: disable
+      ACCOUNT_SERVICE_URL: http://account-service:8005
+      JWT_SECRET: change-me-in-production
+
+  notification-service:
+    build:
+      context: ..
+      dockerfile: services/notification-service/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_db
+      POSTGRES_SSLMODE: disable
+      KAFKA_BROKER: kafka:9092
+      NOTIFICATION_TIMELINE_KAFKA_TOPIC: notification.timeline
+      NOTIFICATION_USER_KAFKA_TOPIC: notification.user
+      RECONCILIATION_EVENTS_KAFKA_TOPIC: reconciliation.events
+      KAFKA_GROUP_ID: notification-service-group
+
+  offer-service:
+    build:
+      context: ..
+      dockerfile: services/offer-service/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_db
+      POSTGRES_SSLMODE: disable
+      KAFKA_BROKER: kafka:9092
+      NOTIFICATION_TIMELINE_KAFKA_TOPIC: notification.timeline
+      OFFER_INITIATED_KAFKA_TOPIC: offer.initiated
+      PAYMENT_SUCCESS_KAFKA_TOPIC: payment.succeeded
+      KAFKA_GROUP_ID: offer-service-group
+
+  payment-executor:
+    build:
+      context: ..
+      dockerfile: services/payment-executor/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_db
+      POSTGRES_SSLMODE: disable
+      KAFKA_BROKER: kafka:9092
+      NOTIFICATION_TIMELINE_KAFKA_TOPIC: notification.timeline
+      PAYMENT_INITIATED_KAFKA_TOPIC: payment.initiated
+      OFFER_RESERVED_KAFKA_TOPIC: offer.reserved
+      OFFER_REJECTED_KAFKA_TOPIC: offer.rejected
+      KAFKA_GROUP_ID: payment-executor-group
+
+  reconciliation-service:
+    build:
+      context: ..
+      dockerfile: services/reconciliation-service/Dockerfile
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_db
+      POSTGRES_SSLMODE: disable

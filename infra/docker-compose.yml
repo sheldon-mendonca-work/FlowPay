@@ -72,6 +72,16 @@ services:
       KAFKA_MIN_INSYNC_REPLICAS: 1
 
       KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
     ports:
       - "9092:9092"
@@ -95,7 +105,7 @@ services:
     image: apache/kafka:4.3.1
     depends_on:
       kafka:
-        condition: service_healthy
+        condition: service_started
 
     volumes:
       - ./kafka/topics.yaml:/config/topics.yaml
@@ -104,13 +114,20 @@ services:
       - /bin/sh
       - -ec
       - |
-        echo 'Waiting for Kafka...'
-        until /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; do
+        echo "Waiting for Kafka..."
+
+        until /opt/kafka/bin/kafka-topics.sh \
+          --bootstrap-server kafka:9092 \
+          --list >/dev/null 2>&1
+        do
           sleep 2
         done
-        echo 'Creating topics from YAML...'
-        topic_name=''
-        partitions=''
+
+        echo "Kafka is ready"
+
+        topic_name=""
+        partitions=""
+
         while IFS= read -r line; do
           case "$$line" in
             *"- name:"*)
@@ -118,8 +135,10 @@ services:
               ;;
             *"partitions:"*)
               partitions=$$(echo "$$line" | awk -F': ' '{print $$2}')
+
               if [ -n "$$topic_name" ] && [ -n "$$partitions" ]; then
                 echo "Creating topic: $$topic_name"
+
                 /opt/kafka/bin/kafka-topics.sh \
                   --bootstrap-server kafka:9092 \
                   --create \
@@ -131,8 +150,8 @@ services:
               ;;
           esac
         done < /config/topics.yaml
-        echo 'Topics ready'
-  
+
+        echo "Topics ready"
   # ----------------------------
   # 📊 Prometheus
   # ----------------------------

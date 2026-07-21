@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"strconv"
 	"time"
 
 	"flowpay/pkg/utils"
@@ -17,6 +18,19 @@ func InitDB() *sql.DB {
 	host := ""
 	port := ""
 	dbName := ""
+	maxOpenConnections, err := strconv.Atoi(utils.GetEnv("POSTGRES_MAX_OPEN_CONNECTIONS", "10"))
+	if err != nil {
+		log.Fatalf("failed to open Postgres connection: %v", err)
+	}
+	maxIdleConnections, err := strconv.Atoi(utils.GetEnv("POSTGRES_MAX_IDLE_CONNECTIONS", "5"))
+	if err != nil {
+		log.Fatalf("failed to open Postgres connection: %v", err)
+	}
+	maxConnectionLifetime, err := strconv.Atoi(utils.GetEnv("POSTGRES_MAX_CONNECTION_LIFETIME", "30"))
+	if err != nil {
+		log.Fatalf("failed to open Postgres connection: %v", err)
+	}
+
 	if dsn == "" {
 		host = utils.GetEnv("POSTGRES_HOST", "localhost")
 		port = utils.GetEnv("POSTGRES_PORT", "5432")
@@ -47,9 +61,9 @@ func InitDB() *sql.DB {
 		log.Fatalf("failed to open Postgres connection: %v", err)
 	}
 
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
-	db.SetConnMaxLifetime(30 * time.Minute)
+	db.SetMaxOpenConns(maxOpenConnections)
+	db.SetMaxIdleConns(maxIdleConnections)
+	db.SetConnMaxLifetime(time.Duration(maxConnectionLifetime) * time.Minute)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 16500*time.Millisecond)
 	defer cancel()

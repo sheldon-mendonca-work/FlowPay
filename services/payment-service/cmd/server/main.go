@@ -28,6 +28,10 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 	metrics.InitMetrics()
+	port := utils.GetEnv("PORT", "8001")
+	if port == "" {
+		log.Fatalf("Could not fetch env variables: " + port)
+	}
 
 	db := infra.InitDB()
 	paymentRepository := repository.NewPaymentRepository(db)
@@ -51,6 +55,6 @@ func main() {
 	mux.HandleFunc("/metrics", handleMetrics)
 	mux.HandleFunc("/payments", handler.HandlePayment)
 	mux.HandleFunc("/payments/{paymentID}", handler.HandlePaymentByID)
-	log.Println("Payment service running on :8001")
-	log.Fatal(http.ListenAndServe(":8001", tracing.TracingMiddleware(paymentServiceConstants.ServiceName, mux)))
+	log.Println("Payment service running on :" + port)
+	log.Fatal(http.ListenAndServe(":"+port, tracing.TracingMiddleware(paymentServiceConstants.ServiceName, mux)))
 }
