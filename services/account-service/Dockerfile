@@ -31,9 +31,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -trimpath \
       -ldflags="-s -w" \
       -o /account-service \
-      ./cmd/server
+      ./cmd/service
 
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12:debug
 
 COPY --from=builder /account-service /account-service
 

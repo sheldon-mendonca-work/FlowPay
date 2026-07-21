@@ -23,6 +23,23 @@ func (r *UserRepository) Create(ctx context.Context, tx *sql.Tx, user domain.Use
 	return err
 }
 
+func (r *UserRepository) FindByID(ctx context.Context, id string) (*domain.User, error) {
+	var u domain.User
+	var companyID sql.NullString
+	err := r.db.QueryRowContext(ctx, `
+		SELECT id, account_id, company_id, role, created_at, updated_at
+		FROM users WHERE id = $1
+	`, id).Scan(&u.ID, &u.AccountID, &companyID, &u.Role, &u.CreatedAt, &u.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	u.CompanyID = companyID.String
+	return &u, nil
+}
+
 func (r *UserRepository) FindByAccountID(ctx context.Context, accountID string) (*domain.User, error) {
 	var u domain.User
 	var companyID sql.NullString

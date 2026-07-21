@@ -112,6 +112,20 @@ type PaymentTransactionsResponse struct {
 	Transactions []PaymentTransactionItem `json:"transactions"`
 }
 
+type UserResponse struct {
+	UserID              string  `json:"user_id"`
+	AccountID           string  `json:"account_id"`
+	Role                string  `json:"role"`
+	AccountName         string  `json:"account_name"`
+	PaymentHandle       string  `json:"payment_handle"`
+	AccountType         string  `json:"account_type"`
+	Balance             int64   `json:"balance"`
+	Currency            string  `json:"currency"`
+	CompanyID           *string `json:"company_id,omitempty"`
+	CompanyName         *string `json:"company_name,omitempty"`
+	CompanyBusinessName *string `json:"company_business_name,omitempty"`
+}
+
 type UserInfoResponse struct {
 	AccountID            string  `json:"account_id"`
 	AccountName          string  `json:"account_name"`

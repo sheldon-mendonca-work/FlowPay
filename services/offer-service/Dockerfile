@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /offer-service \
       ./cmd/service
 
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12:debug
 
 COPY --from=builder /offer-service /offer-service
 

@@ -26,7 +26,8 @@ func ToAccountErrorType(err error) string {
 		errors.Is(err, ErrInvalidListType):
 		return ErrorTypeValidationError
 	case errors.Is(err, ErrAccountNotFound),
-		errors.Is(err, ErrCompanyNotFound):
+		errors.Is(err, ErrCompanyNotFound),
+		errors.Is(err, ErrUserNotFound):
 		return ErrorTypeNotFound
 	default:
 		return ErrorTypeInternalError

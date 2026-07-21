@@ -51,7 +51,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func accountErrorResponse(err error) (string, int) {
 	switch {
 	case errors.Is(err, accountErrors.ErrAccountNotFound),
-		errors.Is(err, accountErrors.ErrCompanyNotFound):
+		errors.Is(err, accountErrors.ErrCompanyNotFound),
+		errors.Is(err, accountErrors.ErrUserNotFound):
 		return err.Error(), http.StatusNotFound
 	case errors.Is(err, accountErrors.ErrAccountNameRequired),
 		errors.Is(err, accountErrors.ErrPaymentHandleRequired),
@@ -76,7 +77,8 @@ func accountOutcome(status int, err error) string {
 	case err == nil:
 		return "success"
 	case errors.Is(err, accountErrors.ErrAccountNotFound),
-		errors.Is(err, accountErrors.ErrCompanyNotFound):
+		errors.Is(err, accountErrors.ErrCompanyNotFound),
+		errors.Is(err, accountErrors.ErrUserNotFound):
 		return "not_found"
 	case errors.Is(err, context.DeadlineExceeded):
 		return "timeout"
@@ -783,6 +785,67 @@ func (h *Handler) HandleGetBalance(w http.ResponseWriter, r *http.Request) {
 		"http_status": http.StatusOK,
 		"outcome":     "success",
 		"account_id":  accountID,
+		"duration_ms": time.Since(start).Milliseconds(),
+	})
+	writeJSON(w, http.StatusOK, resp)
+}
+
+func (h *Handler) HandleGetUser(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSONError(w, accountErrors.ErrMethodNotAllowed.Error(), http.StatusMethodNotAllowed)
+		return
+	}
+
+	userID := strings.TrimSpace(r.PathValue("id"))
+	if userID == "" {
+		writeJSONError(w, accountErrors.ErrUserNotFound.Error(), http.StatusNotFound)
+		return
+	}
+
+	start := time.Now()
+	statusCode := http.StatusOK
+	var serviceErr error
+
+	defer func() {
+		outcome := accountOutcome(statusCode, serviceErr)
+		metrics.UserGetRequestDuration.WithLabelValues(constants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}()
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "user_get_started", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"user_id":     userID,
+		"error_type":  accountErrors.ErrorTypeNone,
+	})
+
+	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
+	defer cancel()
+
+	resp, err := h.accountService.GetUserByID(ctx, userID)
+	if err != nil {
+		message, status := accountErrorResponse(err)
+		statusCode = status
+		serviceErr = err
+		logger.LogEvent(r.Context(), "ERROR", constants.ServiceName, "user_get_failed", logger.Fields{
+			"http_method": r.Method,
+			"http_path":   r.URL.Path,
+			"http_status": status,
+			"outcome":     accountOutcome(status, err),
+			"error_type":  accountErrors.ToAccountErrorType(err),
+			"error":       err.Error(),
+			"user_id":     userID,
+			"duration_ms": time.Since(start).Milliseconds(),
+		})
+		writeJSONError(w, message, status)
+		return
+	}
+
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "user_get_completed", logger.Fields{
+		"http_method": r.Method,
+		"http_path":   r.URL.Path,
+		"http_status": http.StatusOK,
+		"outcome":     "success",
+		"user_id":     userID,
 		"duration_ms": time.Since(start).Milliseconds(),
 	})
 	writeJSON(w, http.StatusOK, resp)

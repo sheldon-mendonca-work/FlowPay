@@ -31,9 +31,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -trimpath \
       -ldflags="-s -w" \
       -o /api-gateway \
-      ./cmd/server
+      ./cmd/service
 
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12:debug
 
 COPY --from=builder /api-gateway /api-gateway
 

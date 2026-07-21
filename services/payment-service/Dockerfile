@@ -33,10 +33,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
       -o /payment-service \
       ./cmd/server
 
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12:debug
 
 COPY --from=builder /payment-service /payment-service
 
-EXPOSE 8000
+EXPOSE 8001
 
 ENTRYPOINT ["/payment-service"]
