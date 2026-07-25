@@ -1,0 +1,23 @@
+name: "flowpay-deployment"
+
+services:
+  deployment-controller:
+    build:
+      context: .
+      dockerfile: ./Dockerfile
+    
+    restart: unless-stopped
+    env_file:
+      - .env
+
+    container_name: deployment-controller
+
+    ports:
+      - "8000:8000"
+    # healthcheck:
+    #   test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+    #   start_period: 10s
+

@@ -7,6 +7,7 @@ import (
 
 	"flowpay/api-gateway/internal/config"
 	"flowpay/api-gateway/internal/constants"
+	"flowpay/api-gateway/internal/heartbeat"
 	"flowpay/api-gateway/internal/middleware"
 	"flowpay/api-gateway/internal/proxy"
 	"flowpay/pkg/observability/metrics"
@@ -33,6 +34,13 @@ func main() {
 		return middleware.JWTAuthSSE(cfg.JWTSecret, constants.ServiceName, h)
 	}
 
+	// Notifies the deployment controller that the app is in use, throttled
+	// to at most one outbound heartbeat per minute. Only wraps routes that
+	// proxy real traffic to backend services — /health and /metrics are
+	// synthetic/infra traffic and shouldn't keep the instance alive.
+	heartbeatNotifier := heartbeat.New(cfg.DeploymentControllerURL + "/deployment/heartbeat")
+	withHeartbeat := heartbeatNotifier.Middleware
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -41,40 +49,40 @@ func main() {
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// auth service - no JWT required
-	mux.Handle("/auth", authProxy)
-	mux.Handle("/auth/", authProxy)
+	mux.Handle("/auth", withHeartbeat(authProxy))
+	mux.Handle("/auth/", withHeartbeat(authProxy))
 
 	// account service - no JWT required
-	mux.Handle("/accounts", accountProxy)
-	mux.Handle("/accounts/", accountProxy)
+	mux.Handle("/accounts", withHeartbeat(accountProxy))
+	mux.Handle("/accounts/", withHeartbeat(accountProxy))
 
 	// account service - JWT required
-	mux.Handle("/accounts/defaults/list", withJWT(accountProxy))
-	mux.Handle("/accounts/list", withJWT(accountProxy))
-	mux.Handle("/accounts/userinfo", withJWT(accountProxy))
-	mux.Handle("/accounts/balance/", withJWT(accountProxy))
-	mux.Handle("/accounts/transactions/", withJWT(accountProxy))
+	mux.Handle("/accounts/defaults/list", withHeartbeat(withJWT(accountProxy)))
+	mux.Handle("/accounts/list", withHeartbeat(withJWT(accountProxy)))
+	mux.Handle("/accounts/userinfo", withHeartbeat(withJWT(accountProxy)))
+	mux.Handle("/accounts/balance/", withHeartbeat(withJWT(accountProxy)))
+	mux.Handle("/accounts/transactions/", withHeartbeat(withJWT(accountProxy)))
 
 	// payment-service — JWT required
-	mux.Handle("/payments", withJWT(paymentProxy))
-	mux.Handle("/payments/", withJWT(paymentProxy))
+	mux.Handle("/payments", withHeartbeat(withJWT(paymentProxy)))
+	mux.Handle("/payments/", withHeartbeat(withJWT(paymentProxy)))
 
 	// offer-service — JWT required
-	mux.Handle("/offers", withJWT(offerProxy))
-	mux.Handle("/offers/", withJWT(offerProxy))
+	mux.Handle("/offers", withHeartbeat(withJWT(offerProxy)))
+	mux.Handle("/offers/", withHeartbeat(withJWT(offerProxy)))
 
 	// notification-service SSE endpoints — JWT via header or ?token= query
 	// param, since EventSource can't set an Authorization header. More
 	// specific than /notification/ above, so they win for these subpaths.
-	mux.Handle("/notification/timeline/", withJWTSSE(notificationProxy))
-	mux.Handle("/notification/fp/metrics", withJWTSSE(notificationProxy))
+	mux.Handle("/notification/timeline/", withHeartbeat(withJWTSSE(notificationProxy)))
+	mux.Handle("/notification/fp/metrics", withHeartbeat(withJWTSSE(notificationProxy)))
 
 	// notification-service — JWT required
-	mux.Handle("/notification", withJWT(notificationProxy))
-	mux.Handle("/notification/", withJWT(notificationProxy))
+	mux.Handle("/notification", withHeartbeat(withJWT(notificationProxy)))
+	mux.Handle("/notification/", withHeartbeat(withJWT(notificationProxy)))
 
 	// reconciliation-service — internal, no JWT
-	mux.Handle("/reconciliation/", reconciliationProxy)
+	mux.Handle("/reconciliation/", withHeartbeat(reconciliationProxy))
 
 	corsMiddleware := middleware.CORS(cfg.AllowedOrigins)
 
