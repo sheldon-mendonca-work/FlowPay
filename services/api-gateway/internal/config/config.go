@@ -28,6 +28,6 @@ func Load() Config {
 		DeploymentControllerURL:  utils.GetEnv("DEPLOYMENT_CONTROLLER_URL", "http://localhost:8016"),
 		JWTSecret:                utils.GetEnv("JWT_SECRET", ""),
 		Port:                     utils.GetEnv("PORT", "8000"),
-		AllowedOrigins:           utils.GetEnvSlice("ALLOWED_ORIGINS", []string{"http://localhost:5173"}),
+		AllowedOrigins:           utils.GetEnvSlice("ALLOWED_ORIGINS", []string{"http://localhost:5173", "https://flowpay-ui.netlify.app/"}),
 	}
 }
