@@ -4,6 +4,8 @@ import (
 	"context"
 	handler "flowpay/deployment-controller/internal/api"
 	awsec2 "flowpay/deployment-controller/internal/aws"
+	"flowpay/deployment-controller/internal/config"
+	"flowpay/deployment-controller/internal/middleware"
 	"flowpay/deployment-controller/internal/service"
 	"flowpay/deployment-controller/internal/state"
 	utils "flowpay/deployment-controller/internal/utils"
@@ -18,6 +20,7 @@ func getHealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	cfg := config.Load()
 	port := utils.GetEnv("PORT", "8016")
 	region := utils.GetEnv("AWS_REGION", "")
 	instanceID := utils.GetEnv("FLOWPAY_INSTANCE_ID", "")
@@ -60,7 +63,10 @@ func main() {
 	mux.HandleFunc("POST /deployment/start", httpHandler.StartInstance)
 	mux.HandleFunc("POST /deployment/stop", httpHandler.StopInstance)
 	mux.HandleFunc("POST /deployment/heartbeat", httpHandler.Heartbeat)
+
+	corsMiddleware := middleware.CORS(cfg.AllowedOrigins)
+
 	log.Println("Deployment Controller service running on :" + port)
-	log.Fatal(http.ListenAndServe(":"+port, mux))
+	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
 
 }

@@ -106,7 +106,7 @@ VALUES
 );
 
 -- defaultcredentials
-INSERT INTO defaultcredentials (account_id, pdisplay_name, description, created_at, updated_at)
+INSERT INTO defaultcredentials (account_id, display_name, description, created_at, updated_at)
 VALUES
 ('a1000000-0000-0000-0000-000000000001', 'Rahul',  'Amazon Admin',   NOW(), NOW()),
 ('a1000000-0000-0000-0000-000000000002', 'Priya',  'Amazon User',    NOW(), NOW()),
