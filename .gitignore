@@ -12,3 +12,5 @@ start-flowpay.sh
 **/.env
 **/*.env
 **/server
+
+**/deployment-controller
