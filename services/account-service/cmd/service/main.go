@@ -7,6 +7,7 @@ import (
 	"flowpay/account-service/internal/infra"
 	"flowpay/account-service/internal/repository"
 	"flowpay/account-service/internal/service"
+	"flowpay/pkg/healthcheck"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"log"
@@ -24,6 +25,8 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	healthcheck.RunIfRequested("http://localhost:8005/accounts/health")
+
 	metrics.InitAccountMetrics()
 
 	cfg := config.Load()

@@ -40,24 +40,26 @@ func NewWithInterval(url string, interval time.Duration) *Notifier {
 // Notify signals that the application is in use. It never blocks the
 // caller: the throttle check is a lock-free CAS, and the outbound HTTP call
 // (when not throttled) happens on a background goroutine.
-func (n *Notifier) Notify() {
-	now := time.Now().UnixNano()
-	last := n.lastSent.Load()
-	if time.Duration(now-last) < n.interval {
-		return
-	}
-	if !n.lastSent.CompareAndSwap(last, now) {
-		return // another goroutine just claimed this slot
-	}
+func (n *Notifier) Notify(isProduction bool) {
+	if isProduction {
+		now := time.Now().UnixNano()
+		last := n.lastSent.Load()
+		if time.Duration(now-last) < n.interval {
+			return
+		}
+		if !n.lastSent.CompareAndSwap(last, now) {
+			return // another goroutine just claimed this slot
+		}
 
-	go n.send()
+		go n.send()
+	}
 }
 
 // Middleware calls Notify for every request without affecting request
 // handling.
-func (n *Notifier) Middleware(next http.Handler) http.Handler {
+func (n *Notifier) Middleware(next http.Handler, isProduction bool) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n.Notify()
+		n.Notify(isProduction)
 		next.ServeHTTP(w, r)
 	})
 }

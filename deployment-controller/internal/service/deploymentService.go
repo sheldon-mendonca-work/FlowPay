@@ -137,6 +137,24 @@ func (s *DeploymentService) Status(ctx context.Context) (StatusResponse, error) 
 	}
 }
 
+// ProxyTarget resolves the current application URL on the instance.
+//
+// It reuses the same running-instance URL that Status and StartInstance
+// expose, so the proxy always points at the same destination callers see in
+// deployment/status and deployment/start.
+func (s *DeploymentService) ProxyTarget(ctx context.Context) (string, error) {
+	resp, err := s.Status(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	if resp.Status != StateRunning || resp.PublicIP == "" {
+		return "", fmt.Errorf("deployment instance is not running")
+	}
+
+	return fmt.Sprintf("http://%s:%s", resp.PublicIP, s.healthPort), nil
+}
+
 // Heartbeat records that the application is still in use.
 func (s *DeploymentService) Heartbeat() {
 	s.state.Touch()

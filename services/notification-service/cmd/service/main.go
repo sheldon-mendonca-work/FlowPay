@@ -8,6 +8,7 @@ import (
 	"flowpay/notification-service/internal/kafka"
 	"flowpay/notification-service/internal/repository"
 	"flowpay/notification-service/internal/service"
+	"flowpay/pkg/healthcheck"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"flowpay/pkg/utils"
@@ -30,6 +31,8 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	healthcheck.RunIfRequested("http://localhost:8008/notification/health")
+
 	metrics.InitNotificationMetrics()
 
 	db := infra.InitDB()

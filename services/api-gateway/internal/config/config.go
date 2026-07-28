@@ -2,6 +2,7 @@ package config
 
 import (
 	"flowpay/pkg/utils"
+	"strings"
 )
 
 type Config struct {
@@ -15,10 +16,14 @@ type Config struct {
 	JWTSecret                string
 	Port                     string
 	AllowedOrigins           []string
+	IsProduction             bool
 }
 
 func Load() Config {
+	environment := strings.ToLower(utils.GetEnv("ENVIRONMENT", "development"))
+
 	return Config{
+		IsProduction:             environment == "production",
 		PaymentServiceURL:        utils.GetEnv("PAYMENT_SERVICE_URL", "http://localhost:8001"),
 		AuthServiceURL:           utils.GetEnv("AUTH_SERVICE_URL", "http://localhost:8007"),
 		AccountServiceURL:        utils.GetEnv("ACCOUNT_SERVICE_URL", "http://localhost:8005"),

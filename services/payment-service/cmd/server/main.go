@@ -10,6 +10,7 @@ import (
 	"flowpay/payment-service/internal/infra"
 	"flowpay/payment-service/internal/repository"
 	"flowpay/payment-service/internal/service"
+	"flowpay/pkg/healthcheck"
 	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
@@ -27,10 +28,12 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	healthcheck.RunIfRequested("http://localhost:8001/payments/health")
+
 	metrics.InitMetrics()
 	port := utils.GetEnv("PORT", "8001")
 	if port == "" {
-		log.Fatalf("Could not fetch env variables: " + port)
+		log.Fatalf("Could not fetch env variables: %s", port)
 	}
 
 	db := infra.InitDB()

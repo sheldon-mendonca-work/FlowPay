@@ -6,6 +6,7 @@ import (
 	awsec2 "flowpay/deployment-controller/internal/aws"
 	"flowpay/deployment-controller/internal/config"
 	"flowpay/deployment-controller/internal/middleware"
+	"flowpay/deployment-controller/internal/proxy"
 	"flowpay/deployment-controller/internal/service"
 	"flowpay/deployment-controller/internal/state"
 	utils "flowpay/deployment-controller/internal/utils"
@@ -63,6 +64,9 @@ func main() {
 	mux.HandleFunc("POST /deployment/start", httpHandler.StartInstance)
 	mux.HandleFunc("POST /deployment/stop", httpHandler.StopInstance)
 	mux.HandleFunc("POST /deployment/heartbeat", httpHandler.Heartbeat)
+
+	apiProxy := proxy.New(deploymentService.ProxyTarget)
+	mux.Handle("/", apiProxy)
 
 	corsMiddleware := middleware.CORS(cfg.AllowedOrigins)
 

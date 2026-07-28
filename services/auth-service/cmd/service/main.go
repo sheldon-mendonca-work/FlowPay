@@ -9,6 +9,7 @@ import (
 	"flowpay/auth-service/internal/jwt"
 	"flowpay/auth-service/internal/repository"
 	"flowpay/auth-service/internal/service"
+	"flowpay/pkg/healthcheck"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"log"
@@ -26,6 +27,8 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	healthcheck.RunIfRequested("http://localhost:8007/auth/health")
+
 	metrics.InitAuthMetrics()
 
 	cfg := config.Load()

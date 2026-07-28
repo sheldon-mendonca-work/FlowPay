@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"flowpay/pkg/healthcheck"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"flowpay/reconciliation-service/internal/api"
@@ -24,6 +25,8 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	healthcheck.RunIfRequested("http://localhost:8013/health")
+
 	metrics.InitReconciliationMetrics()
 	db := infra.InitDB()
 	defer db.Close()
