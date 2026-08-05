@@ -26,8 +26,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # redis:
-      #   condition: service_healthy
+      redis:
+        condition: service_healthy
       kafka:
         condition: service_healthy
 
@@ -49,8 +49,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # redis:
-      #   condition: service_healthy
+      redis:
+        condition: service_healthy
       kafka:
         condition: service_healthy
 

@@ -30,13 +30,18 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 func main() {
 	healthcheck.RunIfRequested("http://localhost:8001/payments/health")
 
-	metrics.InitMetrics()
+	metrics.InitPaymentMetrics()
 	port := utils.GetEnv("PORT", "8001")
 	if port == "" {
 		log.Fatalf("Could not fetch env variables: %s", port)
 	}
 
 	db := infra.InitDB()
+	defer db.Close()
+
+	redisClient := infra.InitRedis()
+	defer redisClient.Close()
+
 	paymentRepository := repository.NewPaymentRepository(db)
 	transactionRepository := repository.NewTransactionRepository(db)
 	paymentIdempotencyRepository := repository.NewPaymentIdempotencyRepository(db)
@@ -48,10 +53,8 @@ func main() {
 	timelinePublisher := notifications.NewTimelinePublisher(strings.Split(kafkaBroker, ","), notificationTimelineKafkaTopic)
 	defer timelinePublisher.Close()
 
-	paymentService := service.NewPaymentService(db, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository, timelinePublisher)
+	paymentService := service.NewPaymentService(db, redisClient, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository, timelinePublisher)
 	handler := api.NewHandler(paymentService)
-
-	defer db.Close()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/payments/health", getHealthCheck)

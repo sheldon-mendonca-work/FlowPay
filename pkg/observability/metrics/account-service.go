@@ -104,6 +104,22 @@ var DefaultCompaniesGetRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var AccountGetUserInfoRedisCount = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "user_info_from_redis",
+		Help: "Total No of Requests Served From Redis",
+	},
+	[]string{"service", "outcome"},
+)
+
+var AccountGetUserInfoDatabaseCount = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "user_info_from_db",
+		Help: "Total No of Requests Served From Database",
+	},
+	[]string{"service", "outcome"},
+)
+
 var UserInfoGetRequestDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "user_info_get_request_duration_seconds",
@@ -188,5 +204,7 @@ func InitAccountMetrics() {
 		UserGetRequestDuration,
 		PaymentHandleGetRequestDuration,
 		TransactionsListRequestDuration,
+		AccountGetUserInfoRedisCount,
+		AccountGetUserInfoDatabaseCount,
 	)
 }

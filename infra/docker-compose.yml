@@ -29,6 +29,8 @@ services:
     image: redis:7
     # container_name: flowpay-redis
     restart: unless-stopped
+    env_file:
+      - ./env/redis.env
     ports:
       - "6379:6379"
     command: ["redis-server", "--appendonly", "yes"]

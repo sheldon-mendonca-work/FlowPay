@@ -196,7 +196,7 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 	defer cancel()
 
 	// Call the service method for handling this
-	resp, err := h.paymentService.CreatePayment(ctx, req, reqIdempotencyKey, traceID, requestID)
+	resp, fromRedis, err := h.paymentService.CreatePayment(ctx, req, reqIdempotencyKey, traceID, requestID)
 	if err != nil {
 		message, status := paymentErrorResponse(err)
 		statusCode = status
@@ -222,6 +222,15 @@ func (h *Handler) HandlePaymentPostMethod(w http.ResponseWriter, r *http.Request
 	}
 
 	metrics.SuccessCount.WithLabelValues(paymentServiceConstants.ServiceName, r.URL.Path, r.Method, strconv.Itoa(http.StatusAccepted)).Inc()
+	outcome := paymentOutcome(statusCode, serviceErr)
+	if fromRedis {
+		metrics.PaymentRedisCreateRequestsTotal.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Inc()
+		metrics.PaymentRedisRequestDuration.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	} else {
+		metrics.PaymentDBCreateRequestsTotal.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Inc()
+		metrics.PaymentDBRequestDuration.WithLabelValues(paymentServiceConstants.ServiceName, outcome).Observe(time.Since(start).Seconds())
+	}
+
 	logger.LogEvent(r.Context(), "INFO", paymentServiceConstants.ServiceName, "payment_request_completed", logger.Fields{
 		"http_method":      r.Method,
 		"http_path":        r.URL.Path,

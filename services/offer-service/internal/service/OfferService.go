@@ -22,6 +22,8 @@ import (
 	"math"
 	"strings"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type OfferRepository interface {
@@ -128,6 +130,7 @@ type UserRepository interface {
 
 type OfferService struct {
 	db                                    *sql.DB
+	redisClient                           *redis.Client
 	offerRepository                       OfferRepository
 	companyRepository                     CompanyRepository
 	offerEventsRepository                 OfferEventsRepository
@@ -142,7 +145,9 @@ type OfferService struct {
 	timelinePublisher                     *notifications.TimelinePublisher
 }
 
-func NewOfferService(db *sql.DB, offerRepository OfferRepository,
+func NewOfferService(db *sql.DB,
+	redisClient *redis.Client,
+	offerRepository OfferRepository,
 	companyRepository CompanyRepository,
 	offerEventsRepository OfferEventsRepository,
 	offerIdempotencyRepository OfferIdempotencyRepository,
@@ -157,6 +162,7 @@ func NewOfferService(db *sql.DB, offerRepository OfferRepository,
 ) *OfferService {
 	return &OfferService{
 		db:                                    db,
+		redisClient:                           redisClient,
 		offerRepository:                       offerRepository,
 		companyRepository:                     companyRepository,
 		offerEventsRepository:                 offerEventsRepository,

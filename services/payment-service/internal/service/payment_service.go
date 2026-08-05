@@ -17,6 +17,8 @@ import (
 	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/utils"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type PaymentRepository interface {
@@ -49,6 +51,7 @@ type OutboxEventRepository interface {
 
 type PaymentService struct {
 	db                           *sql.DB
+	redisClient                  *redis.Client
 	paymentRepository            PaymentRepository
 	transactionRepository        TransactionRepository
 	paymentIdempotencyRepository PaymentIdempotencyRepository
@@ -58,6 +61,7 @@ type PaymentService struct {
 }
 
 func NewPaymentService(db *sql.DB,
+	redisClient *redis.Client,
 	paymentRepository PaymentRepository,
 	transactionRepository TransactionRepository,
 	paymentIdempotencyRepository PaymentIdempotencyRepository,
@@ -67,6 +71,7 @@ func NewPaymentService(db *sql.DB,
 ) *PaymentService {
 	return &PaymentService{
 		db:                           db,
+		redisClient:                  redisClient,
 		paymentRepository:            paymentRepository,
 		transactionRepository:        transactionRepository,
 		paymentIdempotencyRepository: paymentIdempotencyRepository,
@@ -263,27 +268,37 @@ func generateReceiverTransaction(payment domain.Payment) (domain.Transaction, er
 	}, nil
 }
 
-func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string, traceId string, requestId string) (dto.PaymentResponseDTO, error) {
+func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentRequestDTO, idempotencyKey string, traceId string, requestId string) (dto.PaymentResponseDTO, bool, error) {
 	start := time.Now()
 
 	// Compute Request Hash
 	reqAsBytes, err := json.Marshal(req)
 	if err != nil {
-		return dto.PaymentResponseDTO{}, fmt.Errorf("failed to compute hash: %w", err)
+		return dto.PaymentResponseDTO{}, false, fmt.Errorf("failed to compute hash: %w", err)
 	}
 	payloadHash, err := utils.ComputeHash(reqAsBytes)
 	if err != nil {
-		return dto.PaymentResponseDTO{}, fmt.Errorf("failed to compute hash: %w", err)
+		return dto.PaymentResponseDTO{}, false, fmt.Errorf("failed to compute hash: %w", err)
+	}
+
+	paymentIdempotencyKey := fmt.Sprintf("payment:create:idempotency:%s", idempotencyKey)
+
+	cached, err := s.redisClient.Get(ctx, paymentIdempotencyKey).Result()
+	if err == nil {
+		var resp dto.PaymentResponseDTO
+		if json.Unmarshal([]byte(cached), &resp) == nil {
+			return resp, true, nil
+		}
 	}
 
 	ownerToken, err := newPaymentID()
 	if err != nil {
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
 
 	paymentID, err := newPaymentID()
 	if err != nil {
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
 
 	idempotencyPayload := domain.PaymentIdempotencyKey{
@@ -299,7 +314,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	existingIdempotency, idempotencyClaimed, err := s.paymentIdempotencyRepository.ClaimOrGet(ctx, idempotencyPayload)
 	if err != nil {
 		logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_claim_or_get", err, start)
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
 
 	if !idempotencyClaimed {
@@ -315,20 +330,28 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 				"outcome":         "idempotency_mismatch",
 				"duration_ms":     time.Since(start).Milliseconds(),
 			})
-			return dto.PaymentResponseDTO{}, fmt.Errorf("%w: idempotency_key=%s", flowpayPaymentErrors.ErrIdempotencyMismatch, idempotencyKey)
+			return dto.PaymentResponseDTO{}, false, fmt.Errorf("%w: idempotency_key=%s", flowpayPaymentErrors.ErrIdempotencyMismatch, idempotencyKey)
 		}
 
 		if existingIdempotency.Status == "IN_PROGRESS" {
 			err := fmt.Errorf("%w: idempotency_key=%s", flowpayPaymentErrors.ErrIdempotencyInProgress, idempotencyKey)
 			logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_in_progress", err, start)
-			return dto.PaymentResponseDTO{}, err
+			return dto.PaymentResponseDTO{}, false, err
 		}
 
 		cachedResponse, err := cachedIdempotencyResult(existingIdempotency)
 		if err != nil {
 			logPaymentStepFailure(ctx, req, idempotencyKey, "idempotency_cached_result", err, start)
-			return dto.PaymentResponseDTO{}, err
+			return dto.PaymentResponseDTO{}, false, err
 		}
+
+		cachedResponseJSON, err := json.Marshal(cachedResponse)
+
+		_ = s.redisClient.Set(ctx,
+			paymentIdempotencyKey,
+			cachedResponseJSON,
+			5*time.Minute,
+		).Err()
 
 		logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "idempotency_hit", logger.Fields{
 			"idempotency_key": idempotencyKey,
@@ -341,17 +364,31 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 			"duration_ms":     time.Since(start).Milliseconds(),
 		})
 		logger.LogPlain(ctx, paymentServiceConstants.ServiceName, "served cached idempotency result for idempotency_key=%s status=%s", idempotencyKey, existingIdempotency.Status)
-		return cachedResponse, nil
+		return cachedResponse, false, nil
 	}
 
 	if existingIdempotency.PaymentID != "" {
 		paymentID = existingIdempotency.PaymentID
 	}
 
+	processing := dto.PaymentResponseDTO{
+		PaymentID: paymentID,
+		Status:    types.PROCESSING,
+	}
+
+	payload, _ := json.Marshal(processing)
+
+	_ = s.redisClient.Set(
+		ctx,
+		paymentIdempotencyKey,
+		payload,
+		30*time.Second,
+	).Err()
+
 	// Begin Transaction
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
 	txClosed := false
 	rollbackDueToError := false
@@ -393,7 +430,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	}()
 
 	// Create Functions for rollback and markasfailed
-	rollbackTechnicalFailure := func(step string, err error) (dto.PaymentResponseDTO, error) {
+	rollbackTechnicalFailure := func(step string, err error) (dto.PaymentResponseDTO, bool, error) {
 		rollbackDueToError = true
 		logPaymentStepFailure(ctx, req, idempotencyKey, step, err, start)
 
@@ -426,10 +463,10 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 			})
 		}
 		txClosed = true
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
 
-	markFailedAndCommit := func(step string, err error) (dto.PaymentResponseDTO, error) {
+	markFailedAndCommit := func(step string, err error) (dto.PaymentResponseDTO, bool, error) {
 		rollbackDueToError = true
 		logPaymentStepFailure(ctx, req, idempotencyKey, step, err, start)
 		if markErr := s.paymentIdempotencyRepository.MarkFailed(tx, ctx, idempotencyKey, flowpayPaymentErrors.ToPaymentErrorType(err), err.Error(), ownerToken); markErr != nil {
@@ -438,8 +475,20 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		if commitErr := tx.Commit(); commitErr != nil {
 			return rollbackTechnicalFailure(step+"_commit_failed", commitErr)
 		}
+		failedPayment := dto.PaymentResponseDTO{
+			PaymentID: paymentID,
+			Status:    types.FAILED,
+		}
+		failedPaymentPayload, _ := json.Marshal(failedPayment)
+
+		_ = s.redisClient.Set(
+			ctx,
+			paymentIdempotencyKey,
+			failedPaymentPayload,
+			24*time.Hour,
+		).Err()
 		txClosed = true
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
 
 	// Validate sender and receiver accounts
@@ -514,8 +563,16 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 	if err := tx.Commit(); err != nil {
 		rollbackDueToError = true
 		logPaymentStepFailure(ctx, req, idempotencyKey, "tx_commit", err, start)
-		return dto.PaymentResponseDTO{}, err
+		return dto.PaymentResponseDTO{}, false, err
 	}
+	txCommitPayload, _ := json.Marshal(response)
+
+	_ = s.redisClient.Set(
+		ctx,
+		paymentIdempotencyKey,
+		txCommitPayload,
+		24*time.Hour,
+	).Err()
 	txClosed = true
 
 	logger.LogEvent(ctx, "INFO", paymentServiceConstants.ServiceName, "payment_tx_committed", logger.Fields{
@@ -541,7 +598,7 @@ func (s *PaymentService) CreatePayment(ctx context.Context, req dto.PaymentReque
 		s.timelinePublisher.Publish(publishCtx, paymentServiceConstants.ServiceName, paymentID, notifications.StepPaymentInitiated, notifications.StatusSuccess, traceId, requestId)
 	}()
 
-	return response, nil
+	return response, false, nil
 }
 
 func offerSummaryFromPayment(payment domain.Payment) *dto.OfferSummaryDTO {

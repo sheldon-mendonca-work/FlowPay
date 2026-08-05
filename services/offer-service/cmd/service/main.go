@@ -39,6 +39,9 @@ func main() {
 
 	defer db.Close()
 
+	redisClient := infra.InitRedis()
+	defer redisClient.Close()
+
 	offerRepository := repository.NewOfferRepository(db)
 	companyRepository := repository.NewCompanyRepository(db)
 	offerEventsRepository := repository.NewOfferEventsRepository(db)
@@ -57,6 +60,7 @@ func main() {
 	defer timelinePublisher.Close()
 
 	offerService := service.NewOfferService(db,
+		redisClient,
 		offerRepository,
 		companyRepository,
 		offerEventsRepository,

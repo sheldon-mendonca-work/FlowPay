@@ -35,6 +35,9 @@ func main() {
 	db := infra.InitDB()
 	defer db.Close()
 
+	redisClient := infra.InitRedis()
+	defer redisClient.Close()
+
 	credentialsRepository := repository.NewCredentialsRepository(db)
 	refreshTokenRepository := repository.NewRefreshTokenRepository(db)
 	defaultCredentialsRepository := repository.NewDefaultCredentialsRepository(db)
@@ -43,6 +46,7 @@ func main() {
 
 	authService := service.NewAuthService(
 		db,
+		redisClient,
 		credentialsRepository,
 		refreshTokenRepository,
 		defaultCredentialsRepository,

@@ -16,20 +16,26 @@ import (
 	"flowpay/payment-service/internal/infra"
 	"flowpay/payment-service/internal/repository"
 	"flowpay/payment-service/internal/types"
+
+	"github.com/redis/go-redis/v9"
 )
 
 var integrationDB *sql.DB
+var redisClient *redis.Client
 
 func TestMain(m *testing.M) {
 	if os.Getenv("RUN_DB_TESTS") == "1" {
 		integrationDB = infra.InitDB()
 		defer integrationDB.Close()
+
+		redisClient = infra.InitRedis()
+		defer redisClient.Close()
 	}
 
 	os.Exit(m.Run())
 }
 
-func setupIntegrationDB(t *testing.T) *sql.DB {
+func setupIntegrationDB(t *testing.T) (*sql.DB, *redis.Client) {
 	t.Helper()
 
 	if os.Getenv("RUN_DB_TESTS") != "1" {
@@ -40,12 +46,13 @@ func setupIntegrationDB(t *testing.T) *sql.DB {
 		t.Fatal("setupIntegrationDB: integration db was not initialized")
 	}
 
-	return integrationDB
+	return integrationDB, redisClient
 }
 
-func createPaymentService(db *sql.DB) *PaymentService {
+func createPaymentService(db *sql.DB, redisClient *redis.Client) *PaymentService {
 	return NewPaymentService(
 		db,
+		redisClient,
 		repository.NewPaymentRepository(db),
 		repository.NewTransactionRepository(db),
 		repository.NewPaymentIdempotencyRepository(db),
@@ -305,7 +312,7 @@ func getLatestOutboxEvent(t *testing.T, db *sql.DB, aggregateID string) domain.O
 }
 
 func TestIntegrationDBSetup_CreateTwoAccounts(t *testing.T) {
-	db := setupIntegrationDB(t)
+	db, _ := setupIntegrationDB(t)
 	senderAccount, receiverAccount := createTwoAccounts(t, db)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -328,8 +335,9 @@ func TestIntegrationDBSetup_CreateTwoAccounts(t *testing.T) {
 }
 
 func TestCreatePayment_Success(t *testing.T) {
-	db := setupIntegrationDB(t)
-	paymentService := createPaymentService(db)
+	db, redisClient := setupIntegrationDB(t)
+
+	paymentService := createPaymentService(db, redisClient)
 	senderAccount, receiverAccount := createTwoAccounts(t, db)
 
 	req := dto.PaymentRequestDTO{
@@ -341,7 +349,7 @@ func TestCreatePayment_Success(t *testing.T) {
 
 	traceID := "trace-integration-success"
 	requestID := "request-integration-success"
-	response, err := paymentService.CreatePayment(context.Background(), req, "integration-success", traceID, requestID)
+	response, _, err := paymentService.CreatePayment(context.Background(), req, "integration-success", traceID, requestID)
 	if err != nil {
 		t.Fatalf("TestCreatePayment_Success: expected nil error, got %v", err)
 	}
@@ -414,8 +422,8 @@ func TestCreatePayment_Success(t *testing.T) {
 }
 
 func TestCreatePayment_Idempotent(t *testing.T) {
-	db := setupIntegrationDB(t)
-	paymentService := createPaymentService(db)
+	db, redisClient := setupIntegrationDB(t)
+	paymentService := createPaymentService(db, redisClient)
 	senderAccount, receiverAccount := createTwoAccounts(t, db)
 
 	req := dto.PaymentRequestDTO{
@@ -425,12 +433,12 @@ func TestCreatePayment_Idempotent(t *testing.T) {
 		Currency:   "INR",
 	}
 
-	firstResponse, err := paymentService.CreatePayment(context.Background(), req, "integration-idempotent", "trace-integration-idempotent-1", "request-integration-idempotent-1")
+	firstResponse, _, err := paymentService.CreatePayment(context.Background(), req, "integration-idempotent", "trace-integration-idempotent-1", "request-integration-idempotent-1")
 	if err != nil {
 		t.Fatalf("TestCreatePayment_Idempotent: expected first call to succeed, got %v", err)
 	}
 
-	secondResponse, err := paymentService.CreatePayment(context.Background(), req, "integration-idempotent", "trace-integration-idempotent-2", "request-integration-idempotent-2")
+	secondResponse, _, err := paymentService.CreatePayment(context.Background(), req, "integration-idempotent", "trace-integration-idempotent-2", "request-integration-idempotent-2")
 	if err == nil {
 		t.Fatalf("TestCreatePayment_Idempotent: expected second call to return in-progress error, got %v", err)
 	}
@@ -464,8 +472,8 @@ func TestCreatePayment_Idempotent(t *testing.T) {
 }
 
 func TestCreatePayment_IdempotencyMismatch(t *testing.T) {
-	db := setupIntegrationDB(t)
-	paymentService := createPaymentService(db)
+	db, redisClient := setupIntegrationDB(t)
+	paymentService := createPaymentService(db, redisClient)
 	senderAccount, receiverAccount := createTwoAccounts(t, db)
 
 	firstReq := dto.PaymentRequestDTO{
@@ -482,12 +490,12 @@ func TestCreatePayment_IdempotencyMismatch(t *testing.T) {
 		Currency:   "INR",
 	}
 
-	firstResponse, err := paymentService.CreatePayment(context.Background(), firstReq, "integration-mismatch", "trace-integration-mismatch-1", "request-integration-mismatch-1")
+	firstResponse, _, err := paymentService.CreatePayment(context.Background(), firstReq, "integration-mismatch", "trace-integration-mismatch-1", "request-integration-mismatch-1")
 	if err != nil {
 		t.Fatalf("TestCreatePayment_IdempotencyMismatch: expected first call to succeed, got %v", err)
 	}
 
-	_, err = paymentService.CreatePayment(context.Background(), secondReq, "integration-mismatch", "trace-integration-mismatch-2", "request-integration-mismatch-2")
+	_, _, err = paymentService.CreatePayment(context.Background(), secondReq, "integration-mismatch", "trace-integration-mismatch-2", "request-integration-mismatch-2")
 	if err == nil {
 		t.Fatal("TestCreatePayment_IdempotencyMismatch: expected error for mismatched idempotency request")
 	}
@@ -506,8 +514,8 @@ func TestCreatePayment_IdempotencyMismatch(t *testing.T) {
 }
 
 func TestCreatePayment_InsufficientBalance(t *testing.T) {
-	db := setupIntegrationDB(t)
-	paymentService := createPaymentService(db)
+	db, redisClient := setupIntegrationDB(t)
+	paymentService := createPaymentService(db, redisClient)
 	senderAccount, receiverAccount := createTwoAccounts(t, db)
 
 	req := dto.PaymentRequestDTO{
@@ -517,7 +525,7 @@ func TestCreatePayment_InsufficientBalance(t *testing.T) {
 		Currency:   "INR",
 	}
 
-	_, err := paymentService.CreatePayment(context.Background(), req, "integration-insufficient", "trace-integration-insufficient-1", "request-integration-insufficient-1")
+	_, _, err := paymentService.CreatePayment(context.Background(), req, "integration-insufficient", "trace-integration-insufficient-1", "request-integration-insufficient-1")
 	if err == nil {
 		t.Fatal("TestCreatePayment_InsufficientBalance: expected insufficient balance error")
 	}
@@ -551,7 +559,7 @@ func TestCreatePayment_InsufficientBalance(t *testing.T) {
 		t.Fatalf("TestCreatePayment_InsufficientBalance: expected error code %s, got %s", flowpayPaymentErrors.ErrorTypeInsufficientBalance, record.ErrorCode)
 	}
 
-	_, secondErr := paymentService.CreatePayment(context.Background(), req, "integration-insufficient", "trace-integration-insufficient-2", "request-integration-insufficient-2")
+	_, _, secondErr := paymentService.CreatePayment(context.Background(), req, "integration-insufficient", "trace-integration-insufficient-2", "request-integration-insufficient-2")
 	if secondErr == nil {
 		t.Fatal("TestCreatePayment_InsufficientBalance: expected cached insufficient balance error on retry")
 	}

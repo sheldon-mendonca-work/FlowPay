@@ -77,6 +77,22 @@ var AuthLogoutRequestDuration = prometheus.NewHistogramVec(
 	[]string{"service", "outcome"},
 )
 
+var AuthDefaultLoginRedisCount = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "auth_default_login_redis",
+		Help: "Total No of Default Auth Login Served From Redis",
+	},
+	[]string{"service", "outcome"},
+)
+
+var AuthDefaultLoginDatabaseCount = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "auth_default_login_db",
+		Help: "Total No of Default Auth Login Served From Database",
+	},
+	[]string{"service", "outcome"},
+)
+
 var AuthDefaultLoginRequestsTotal = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "auth_default_login_requests_total",
@@ -119,6 +135,24 @@ var AuthDefaultLoginUserRequestsTotal = prometheus.NewCounterVec(
 	[]string{"service", "outcome", "account_type"},
 )
 
+var AuthDefaultLoginUserRequestRedisDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "auth_default_login_user_redis_request_duration_seconds",
+		Help:    "Default user login request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome", "account_type"},
+)
+
+var AuthDefaultLoginUserRequestDBDuration = prometheus.NewHistogramVec(
+	prometheus.HistogramOpts{
+		Name:    "auth_default_login_user_db_request_duration_seconds",
+		Help:    "Default user login request processing latency in seconds.",
+		Buckets: prometheus.DefBuckets,
+	},
+	[]string{"service", "outcome", "account_type"},
+)
+
 var AuthDefaultLoginUserRequestDuration = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "auth_default_login_user_request_duration_seconds",
@@ -145,6 +179,9 @@ func InitAuthMetrics() {
 		AuthDefaultLoginAccountRequestsTotal,
 		AuthDefaultLoginAccountRequestDuration,
 		AuthDefaultLoginUserRequestsTotal,
-		AuthDefaultLoginUserRequestDuration,
+		AuthDefaultLoginUserRequestRedisDuration,
+		AuthDefaultLoginUserRequestDBDuration,
+		AuthDefaultLoginRedisCount,
+		AuthDefaultLoginDatabaseCount,
 	)
 }

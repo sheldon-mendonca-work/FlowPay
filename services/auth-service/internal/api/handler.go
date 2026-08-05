@@ -680,7 +680,7 @@ func (h *Handler) HandleAuthDefaultLoginUserRoute(w http.ResponseWriter, r *http
 	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
 
-	resp, err := h.authService.DefaultLoginUser(ctx, accountID, accountType)
+	resp, err := h.authService.DefaultLoginUser(ctx, accountID, accountType, start)
 	if err != nil {
 		message, status := authErrorResponse(err)
 		statusCode = status

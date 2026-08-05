@@ -5,6 +5,12 @@ PAYMENT_SERVICE_DIR := services/payment-service
 
 .PHONY: up down logs test
 
+build:
+	docker compose -f $(COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) build
+
+build-up:
+	docker compose -f $(COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) up --build -d
+
 up:
 	docker compose -f $(COMPOSE_FILE) -f $(SERVICE_COMPOSE_FILE) up -d
 

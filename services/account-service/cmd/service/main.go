@@ -33,6 +33,9 @@ func main() {
 	db := infra.InitDB()
 	defer db.Close()
 
+	redisClient := infra.InitRedis()
+	defer redisClient.Close()
+
 	companyRepository := repository.NewCompanyRepository(db)
 	userRepository := repository.NewUserRepository(db)
 	accountsRepository := repository.NewAccountsRepository(db)
@@ -41,6 +44,7 @@ func main() {
 
 	accountService := service.NewAccountService(
 		db,
+		redisClient,
 		companyRepository,
 		userRepository,
 		accountsRepository,

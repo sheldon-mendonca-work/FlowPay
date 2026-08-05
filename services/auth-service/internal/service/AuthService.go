@@ -5,16 +5,21 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"time"
 
 	"flowpay/auth-service/internal/client"
+	"flowpay/auth-service/internal/constants"
 	"flowpay/auth-service/internal/domain"
 	"flowpay/auth-service/internal/dto"
 	authErrors "flowpay/auth-service/internal/errors"
 	"flowpay/auth-service/internal/jwt"
 	"flowpay/auth-service/internal/password"
 	"flowpay/auth-service/internal/repository"
+	"flowpay/pkg/observability/metrics"
+
+	"github.com/redis/go-redis/v9"
 )
 
 const refreshTokenTTL = 7 * 24 * time.Hour
@@ -38,6 +43,7 @@ type DefaultCredsRepository interface {
 
 type AuthService struct {
 	db               *sql.DB
+	redisClient      *redis.Client
 	credentialsRepo  CredentialsRepository
 	refreshTokenRepo RefreshTokenRepository
 	defaultCredsRepo DefaultCredsRepository
@@ -47,6 +53,7 @@ type AuthService struct {
 
 func NewAuthService(
 	db *sql.DB,
+	redisClient *redis.Client,
 	credentialsRepo *repository.CredentialsRepository,
 	refreshTokenRepo *repository.RefreshTokenRepository,
 	defaultCredsRepo *repository.DefaultCredentialsRepository,
@@ -55,6 +62,7 @@ func NewAuthService(
 ) *AuthService {
 	return &AuthService{
 		db:               db,
+		redisClient:      redisClient,
 		credentialsRepo:  credentialsRepo,
 		refreshTokenRepo: refreshTokenRepo,
 		defaultCredsRepo: defaultCredsRepo,
@@ -224,6 +232,19 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken string) (*dto.AuthRe
 }
 
 func (s *AuthService) DefaultLogin(ctx context.Context, accountID string) (*dto.AuthResponse, error) {
+	start := time.Now()
+	defaultLoginKey := fmt.Sprintf("auth:defaultlogin:%s", accountID)
+
+	cached, err := s.redisClient.Get(ctx, defaultLoginKey).Result()
+	if err == nil {
+		var resp dto.AuthResponse
+		if json.Unmarshal([]byte(cached), &resp) == nil {
+			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
+			metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
+			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+			return &resp, nil
+		}
+	}
 	exists, err := s.defaultCredsRepo.ExistsByAccountID(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -262,13 +283,37 @@ func (s *AuthService) DefaultLogin(ctx context.Context, accountID string) (*dto.
 		return nil, err
 	}
 
-	return &dto.AuthResponse{
+	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
+	metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
+	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+
+	var resp dto.AuthResponse
+	resp = dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: rawToken,
-	}, nil
+	}
+
+	if bytes, err := json.Marshal(resp); err == nil {
+		_ = s.redisClient.Set(ctx, defaultLoginKey, bytes, 5*time.Minute).Err()
+	}
+
+	return &resp, nil
 }
 
 func (s *AuthService) DefaultLoginAccount(ctx context.Context, accountID, accountType string) (*dto.AuthResponse, error) {
+	start := time.Now()
+	defaultLoginKey := fmt.Sprintf("auth:defaultloginAccount:%s", accountID)
+
+	cached, err := s.redisClient.Get(ctx, defaultLoginKey).Result()
+	if err == nil {
+		var resp dto.AuthResponse
+		if json.Unmarshal([]byte(cached), &resp) == nil {
+			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
+			metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
+			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+			return &resp, nil
+		}
+	}
 	exists, err := s.defaultCredsRepo.ExistsByAccountIDAsAccount(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -307,13 +352,36 @@ func (s *AuthService) DefaultLoginAccount(ctx context.Context, accountID, accoun
 		return nil, err
 	}
 
-	return &dto.AuthResponse{
+	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
+	metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
+	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+
+	var resp dto.AuthResponse
+	resp = dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: rawToken,
-	}, nil
+	}
+
+	if bytes, err := json.Marshal(resp); err == nil {
+		_ = s.redisClient.Set(ctx, defaultLoginKey, bytes, 5*time.Minute).Err()
+	}
+
+	return &resp, nil
 }
 
-func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountType string) (*dto.AuthResponse, error) {
+func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountType string, start time.Time) (*dto.AuthResponse, error) {
+	defaultLoginKey := fmt.Sprintf("auth:defaultloginAccount:%s", accountID)
+
+	cached, err := s.redisClient.Get(ctx, defaultLoginKey).Result()
+	if err == nil {
+		var resp dto.AuthResponse
+		if json.Unmarshal([]byte(cached), &resp) == nil {
+			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
+			metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
+			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+			return &resp, nil
+		}
+	}
 	exists, err := s.defaultCredsRepo.ExistsByAccountIDAsUser(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -352,10 +420,21 @@ func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountTy
 		return nil, err
 	}
 
-	return &dto.AuthResponse{
+	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
+	metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
+	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+
+	var resp dto.AuthResponse
+	resp = dto.AuthResponse{
 		AccessToken:  accessToken,
 		RefreshToken: rawToken,
-	}, nil
+	}
+
+	if bytes, err := json.Marshal(resp); err == nil {
+		_ = s.redisClient.Set(ctx, defaultLoginKey, bytes, 5*time.Minute).Err()
+	}
+
+	return &resp, nil
 }
 
 func (s *AuthService) Logout(ctx context.Context, rawToken string) error {

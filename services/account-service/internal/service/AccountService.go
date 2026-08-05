@@ -4,18 +4,24 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"flowpay/account-service/internal/constants"
 	"flowpay/account-service/internal/domain"
 	"flowpay/account-service/internal/dto"
 	accountErrors "flowpay/account-service/internal/errors"
 	"flowpay/account-service/internal/repository"
+	"flowpay/pkg/observability/metrics"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type AccountService struct {
 	db               *sql.DB
+	redisClient      *redis.Client
 	companyRepo      *repository.CompanyRepository
 	userRepo         *repository.UserRepository
 	accountRepo      *repository.AccountsRepository
@@ -25,6 +31,7 @@ type AccountService struct {
 
 func NewAccountService(
 	db *sql.DB,
+	redisClient *redis.Client,
 	companyRepo *repository.CompanyRepository,
 	userRepo *repository.UserRepository,
 	accountRepo *repository.AccountsRepository,
@@ -33,6 +40,7 @@ func NewAccountService(
 ) *AccountService {
 	return &AccountService{
 		db:               db,
+		redisClient:      redisClient,
 		companyRepo:      companyRepo,
 		userRepo:         userRepo,
 		accountRepo:      accountRepo,
@@ -272,6 +280,17 @@ func validateCreateUserRequest(req dto.CreateUserRequest) error {
 }
 
 func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dto.UserInfoResponse, error) {
+	key := fmt.Sprintf("account:userinfo:%s", accountID)
+
+	cached, err := s.redisClient.Get(ctx, key).Result()
+	if err == nil {
+		var resp dto.UserInfoResponse
+		if json.Unmarshal([]byte(cached), &resp) == nil {
+			metrics.AccountGetUserInfoRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
+			return &resp, nil
+		}
+	}
+
 	account, err := s.accountRepo.FindByID(ctx, accountID)
 	if err != nil {
 		return nil, err
@@ -311,10 +330,16 @@ func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dt
 		}
 	}
 
+	if bytes, err := json.Marshal(resp); err == nil {
+		_ = s.redisClient.Set(ctx, key, bytes, 5*time.Minute).Err()
+	}
+	metrics.AccountGetUserInfoDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
+	fmt.Println("Served from Database")
 	return resp, nil
 }
 
 func (s *AccountService) GetUserByID(ctx context.Context, userID string) (*dto.UserResponse, error) {
+
 	user, err := s.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err

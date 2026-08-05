@@ -2,7 +2,7 @@ module flowpay/payment-service
 
 go 1.26.2
 
-require github.com/redis/go-redis/v9 v9.19.0
+require github.com/redis/go-redis/v9 v9.22.0
 
 require flowpay/pkg v0.0.0
 
