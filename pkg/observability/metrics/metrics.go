@@ -6,11 +6,12 @@ import (
 
 var RequestReceived = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
-		Name: "request_received",
+		Name: "http_request_total",
 		Help: "Total Number of HTTP requests received",
 	},
 	[]string{"service", "endpoint", "method", "status"},
 )
+
 var SuccessCount = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "success_count",
@@ -30,68 +31,17 @@ var ErrorCount = prometheus.NewCounterVec(
 
 var RequestLatency = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
-		Name:    "request_latency",
+		Name:    "http_request_duration_seconds",
 		Help:    "HTTP request latency in seconds.",
 		Buckets: prometheus.DefBuckets,
 	},
 	[]string{"service", "endpoint", "method"},
 )
 
-var PaymentRequestsTotal = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "payment_requests_total",
-		Help: "Total number of payment requests by outcome.",
-	},
-	[]string{"service", "outcome"},
-)
-
-var PaymentRequestDuration = prometheus.NewHistogramVec(
-	prometheus.HistogramOpts{
-		Name:    "payment_request_duration_seconds",
-		Help:    "Payment request processing latency in seconds.",
-		Buckets: prometheus.DefBuckets,
-	},
-	[]string{"service", "outcome"},
-)
-
-var PaymentRedisCreateRequestsTotal = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "payment_create_redis_requests_total",
-		Help: "Total number of payment requests by outcome.",
-	},
-	[]string{"service", "outcome"},
-)
-
-var PaymentDBCreateRequestsTotal = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "payment_create_db_requests_total",
-		Help: "Total number of payment requests by outcome.",
-	},
-	[]string{"service", "outcome"},
-)
-
-var PaymentRedisRequestDuration = prometheus.NewHistogramVec(
-	prometheus.HistogramOpts{
-		Name:    "payment_create_redis_request_duration_seconds",
-		Help:    "Payment request processing latency in seconds.",
-		Buckets: prometheus.DefBuckets,
-	},
-	[]string{"service", "outcome"},
-)
-
-var PaymentDBRequestDuration = prometheus.NewHistogramVec(
-	prometheus.HistogramOpts{
-		Name:    "payment_create_db_request_duration_seconds",
-		Help:    "Payment request processing latency in seconds.",
-		Buckets: prometheus.DefBuckets,
-	},
-	[]string{"service", "outcome"},
-)
-
-func InitPaymentMetrics() {
-	prometheus.MustRegister(RequestReceived, SuccessCount, ErrorCount, RequestLatency, PaymentRequestsTotal, PaymentRequestDuration,
-		PaymentRedisCreateRequestsTotal,
-		PaymentDBCreateRequestsTotal,
-		PaymentRedisRequestDuration,
-		PaymentDBRequestDuration)
+func InitMetrics() {
+	prometheus.MustRegister(RequestReceived,
+		RequestLatency,
+		SuccessCount,
+		ErrorCount,
+	)
 }

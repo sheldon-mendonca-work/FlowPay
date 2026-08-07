@@ -8,6 +8,7 @@ import (
 	"flowpay/account-service/internal/repository"
 	"flowpay/account-service/internal/service"
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"log"
@@ -54,24 +55,25 @@ func main() {
 
 	httpHandler := api.NewHandler(accountService)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/accounts/health", getHealthCheck)
-	mux.HandleFunc("/metrics", handleMetrics)
-	mux.HandleFunc("/accounts", httpHandler.HandleCreateAccount)
-	mux.HandleFunc("/accounts/companies", httpHandler.HandleCreateCompany)
-	mux.HandleFunc("/accounts/users", httpHandler.HandleCreateUser)
-	mux.HandleFunc("/accounts/defaults/accounts", httpHandler.HandleGetDefaultAccounts)
-	mux.HandleFunc("/accounts/defaults/users", httpHandler.HandleGetDefaultUsers)
-	mux.HandleFunc("/accounts/defaults/companies", httpHandler.HandleGetDefaultCompanies)
-	mux.HandleFunc("/accounts/defaults/list", httpHandler.HandleGetDefaultList)
-	mux.HandleFunc("/accounts/list", httpHandler.HandleListUserAccounts)
-	mux.HandleFunc("/accounts/userinfo", httpHandler.HandleGetUserInfo)
-	mux.HandleFunc("/accounts/balance/{id}", httpHandler.HandleGetBalance)
-	mux.HandleFunc("/accounts/user/{id}", httpHandler.HandleGetUser)
-	mux.HandleFunc("/accounts/paymenthandle/{paymenthandle}", httpHandler.HandleGetUserByPaymentHandle)
-	mux.HandleFunc("/accounts/transactions/payment/{paymentID}", httpHandler.HandleGetTransactionsByPaymentID)
-	mux.HandleFunc("/accounts/transactions/{accountID}", httpHandler.HandleGetTransactions)
+	router := httpx.NewRouter()
+
+	router.HandleFunc("/accounts/health", getHealthCheck)
+	router.HandleFunc("/metrics", handleMetrics)
+	router.HandleFunc("/accounts", httpHandler.HandleCreateAccount)
+	router.HandleFunc("/accounts/companies", httpHandler.HandleCreateCompany)
+	router.HandleFunc("/accounts/users", httpHandler.HandleCreateUser)
+	router.HandleFunc("/accounts/defaults/accounts", httpHandler.HandleGetDefaultAccounts)
+	router.HandleFunc("/accounts/defaults/users", httpHandler.HandleGetDefaultUsers)
+	router.HandleFunc("/accounts/defaults/companies", httpHandler.HandleGetDefaultCompanies)
+	router.HandleFunc("/accounts/defaults/list", httpHandler.HandleGetDefaultList)
+	router.HandleFunc("/accounts/list", httpHandler.HandleListUserAccounts)
+	router.HandleFunc("/accounts/userinfo", httpHandler.HandleGetUserInfo)
+	router.HandleFunc("/accounts/balance/{id}", httpHandler.HandleGetBalance)
+	router.HandleFunc("/accounts/user/{id}", httpHandler.HandleGetUser)
+	router.HandleFunc("/accounts/paymenthandle/{paymenthandle}", httpHandler.HandleGetUserByPaymentHandle)
+	router.HandleFunc("/accounts/transactions/payment/{paymentID}", httpHandler.HandleGetTransactionsByPaymentID)
+	router.HandleFunc("/accounts/transactions/{accountID}", httpHandler.HandleGetTransactions)
 
 	log.Printf("Account service running on :%s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, router)))
 }

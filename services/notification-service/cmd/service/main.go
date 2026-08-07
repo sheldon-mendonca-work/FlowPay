@@ -9,6 +9,7 @@ import (
 	"flowpay/notification-service/internal/repository"
 	"flowpay/notification-service/internal/service"
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"flowpay/pkg/utils"
@@ -82,12 +83,12 @@ func main() {
 
 	httpHandler := api.NewHandler(notificationService)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/notification/health", getHealthCheck)
-	mux.HandleFunc("/notification/metrics", handleMetrics)
-	mux.HandleFunc("/notification/timeline/payment/{paymentID}", httpHandler.HandleGetTimelineByPaymentID)
-	mux.HandleFunc("/notification/timeline/{trace_id}", httpHandler.HandleNotificationTimelineStream)
-	mux.HandleFunc("/notification/fp/metrics", httpHandler.HandleFlowpayMetricsStream)
+	router := httpx.NewRouter()
+	router.HandleFunc("/notification/health", getHealthCheck)
+	router.HandleFunc("/notification/metrics", handleMetrics)
+	router.HandleFunc("/notification/timeline/payment/{paymentID}", httpHandler.HandleGetTimelineByPaymentID)
+	router.HandleFunc("/notification/timeline/{trace_id}", httpHandler.HandleNotificationTimelineStream)
+	router.HandleFunc("/notification/fp/metrics", httpHandler.HandleFlowpayMetricsStream)
 	log.Println("Notification service running on :8008")
-	log.Fatal(http.ListenAndServe(":8008", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":8008", tracing.TracingMiddleware(constants.ServiceName, router)))
 }

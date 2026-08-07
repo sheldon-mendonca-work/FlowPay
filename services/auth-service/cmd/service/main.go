@@ -10,6 +10,7 @@ import (
 	"flowpay/auth-service/internal/repository"
 	"flowpay/auth-service/internal/service"
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"log"
@@ -56,17 +57,18 @@ func main() {
 
 	httpHandler := api.NewHandler(authService)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/auth/health", getHealthCheck)
-	mux.HandleFunc("/metrics", handleMetrics)
-	mux.HandleFunc("/auth/login", httpHandler.HandleAuthLoginRoute)
-	mux.HandleFunc("/auth/register", httpHandler.HandleAuthRegisterRoute)
-	mux.HandleFunc("/auth/refresh", httpHandler.HandleAuthRefreshRoute)
-	mux.HandleFunc("/auth/logout", httpHandler.HandleAuthLogoutRoute)
-	mux.HandleFunc("/auth/default-login", httpHandler.HandleAuthDefaultLoginRoute)
-	mux.HandleFunc("/auth/defaultLoginAccount", httpHandler.HandleAuthDefaultLoginAccountRoute)
-	mux.HandleFunc("/auth/defaultLoginUser", httpHandler.HandleAuthDefaultLoginUserRoute)
+	router := httpx.NewRouter()
+
+	router.HandleFunc("/auth/health", getHealthCheck)
+	router.HandleFunc("/metrics", handleMetrics)
+	router.HandleFunc("/auth/login", httpHandler.HandleAuthLoginRoute)
+	router.HandleFunc("/auth/register", httpHandler.HandleAuthRegisterRoute)
+	router.HandleFunc("/auth/refresh", httpHandler.HandleAuthRefreshRoute)
+	router.HandleFunc("/auth/logout", httpHandler.HandleAuthLogoutRoute)
+	router.HandleFunc("/auth/default-login", httpHandler.HandleAuthDefaultLoginRoute)
+	router.HandleFunc("/auth/defaultLoginAccount", httpHandler.HandleAuthDefaultLoginAccountRoute)
+	router.HandleFunc("/auth/defaultLoginUser", httpHandler.HandleAuthDefaultLoginUserRoute)
 
 	log.Printf("Auth service running on :%s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, tracing.TracingMiddleware(constants.ServiceName, router)))
 }

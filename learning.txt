@@ -1,0 +1,460 @@
+This is where I want to change your approach slightly.
+
+Until now you've mostly been doing:
+
+> Learn concept → Implement feature
+
+For observability, I'd reverse it.
+
+> **Implement → Get stuck → Learn exactly what's needed → Improve**
+
+That's how SREs and platform engineers usually learn Grafana.
+
+---
+
+# Goal
+
+By the end of this phase you shouldn't just know Grafana.
+
+You should be able to answer:
+
+> **"How do you know FlowPay is healthy?"**
+
+within 30 seconds.
+
+That is the real objective.
+
+---
+
+# Phase 1 — Learn only enough Grafana
+
+Don't spend hours watching tutorials.
+
+Learn only:
+
+* Dashboard
+* Panel
+* Variable
+* Row
+* PromQL
+* Alert
+* Transform (later)
+
+That's enough.
+
+Resources
+
+* Grafana Dashboard tutorial (official)
+* Prometheus PromQL basics (official)
+* Grafana variables
+
+Nothing more.
+
+This is probably 1–2 hours.
+
+---
+
+# Phase 2 — Build Overview Dashboard
+
+This is the dashboard every company has.
+
+Question it answers:
+
+> **Should I wake up?**
+
+If yes
+
+Which service?
+
+---
+
+## Row 1 — Platform Health
+
+Questions
+
+```text
+Are all services alive?
+
+Is any service down?
+
+Are requests coming?
+```
+
+Panels
+
+```
+Services Up
+
+Total Requests/sec
+
+Total Error Rate
+
+Overall P95
+
+Kafka Consumers Alive
+```
+
+---
+
+## Row 2 — Business Health
+
+Questions
+
+```
+Is money flowing?
+
+Are users able to pay?
+```
+
+Panels
+
+```
+Payments Today
+
+Payments Failed
+
+Payments Processing
+
+Offers Redeemed
+
+Offers Reserved
+
+Wallet Updates
+```
+
+Notice these are **business metrics**, not infrastructure.
+
+---
+
+## Row 3 — Infrastructure
+
+Questions
+
+```
+Is Kafka healthy?
+
+Is Redis healthy?
+
+Is Postgres healthy?
+```
+
+Panels
+
+```
+Redis Hit Ratio
+
+Redis Errors
+
+Kafka Publish Rate
+
+Kafka Consumer Lag
+
+DB Connections
+
+DB Errors
+```
+
+---
+
+## Row 4 — Runtime
+
+Questions
+
+```
+Is any service dying?
+```
+
+Panels
+
+```
+CPU
+
+Memory
+
+Goroutines
+
+GC
+
+Container Restarts
+```
+
+---
+
+## Row 5 — Logs
+
+Panels
+
+```
+Latest Errors
+
+Latest Warnings
+
+Top Error Messages
+```
+
+using Loki.
+
+---
+
+# Then implement service dashboards
+
+After overview
+
+Payment
+
+↓
+
+Ledger
+
+↓
+
+Wallet
+
+↓
+
+Offer
+
+↓
+
+Fraud
+
+...
+
+---
+
+# What do you need to implement?
+
+Here's where people underestimate the work.
+
+Dashboards don't create metrics.
+
+Your services do.
+
+For every metric ask
+
+> **Who increments it?**
+
+Example
+
+```
+payments_created_total
+```
+
+Where?
+
+Inside
+
+```
+CreatePayment()
+```
+
+after validation.
+
+---
+
+Another
+
+```
+redis_hits_total
+```
+
+Where?
+
+Immediately after
+
+```
+GET succeeds
+```
+
+---
+
+Another
+
+```
+kafka_publish_errors_total
+```
+
+Where?
+
+Immediately after
+
+```
+writer.WriteMessages()
+```
+
+returns error.
+
+---
+
+# Learning roadmap
+
+I wouldn't learn Grafana.
+
+I'd learn observability.
+
+Order:
+
+### Day 1
+
+Prometheus metric types
+
+* Counter
+* Gauge
+* Histogram
+* Summary
+
+Know exactly when each is used.
+
+---
+
+### Day 2
+
+PromQL
+
+You'll use it every day.
+
+Learn
+
+```
+rate()
+
+increase()
+
+sum()
+
+avg()
+
+histogram_quantile()
+
+by()
+
+without()
+```
+
+That's probably 90% of queries.
+
+---
+
+### Day 3
+
+Grafana
+
+Panels
+
+Rows
+
+Variables
+
+Alert Rules
+
+Dashboard variables
+
+---
+
+### Day 4
+
+Dashboard design
+
+This is where staff engineering comes in.
+
+Learn
+
+* RED
+* USE
+* Four Golden Signals
+
+Know when each applies.
+
+---
+
+### Day 5
+
+Business metrics
+
+This is the differentiator.
+
+Most interview projects stop here
+
+```
+CPU
+
+Memory
+
+Latency
+```
+
+Yours should continue
+
+```
+Payments
+
+Ledger
+
+Offers
+
+Fraud
+
+Wallet
+
+Cashback
+```
+
+---
+
+# What I'd implement first
+
+Exactly this order:
+
+1. **Overview Dashboard**
+
+   * Platform Health
+   * Business Health
+   * Infrastructure
+   * Runtime
+   * Logs
+
+2. **Payment Service Dashboard**
+
+   * RED
+   * Business
+   * Dependencies
+   * Runtime
+   * Logs
+
+3. **Account Service Dashboard**
+
+4. **Ledger Service Dashboard**
+
+5. **Wallet Service Dashboard**
+
+6. **Offer Service Dashboard**
+
+7. **Fraud Service Dashboard**
+
+8. **Scheduler Dashboard**
+
+9. **Reconciliation Dashboard**
+
+10. **Infrastructure Dashboards**
+
+    * Kafka
+    * Redis
+    * PostgreSQL
+
+---
+
+## This is the one thing I want to add
+
+Since you're building FlowPay to reach **Staff Engineer** level, don't just create dashboards—create an **observability standard** for every service.
+
+For each service, define the same checklist:
+
+* **Health (RED):** traffic, errors, latency, availability.
+* **Business KPIs:** the service's domain-specific metrics.
+* **Dependencies:** Redis, Kafka, PostgreSQL, external APIs.
+* **Runtime:** Go runtime and container metrics.
+* **Logs:** embedded Loki panels for errors and recent activity.
+* **Alerts:** what condition would page an engineer.
+
+From this point on, every new FlowPay service should implement this contract before it's considered "done." That's exactly the kind of consistency that scales in larger engineering organizations and aligns well with the "Definition of Done" you defined for the project.
+

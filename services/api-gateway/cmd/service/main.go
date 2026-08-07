@@ -11,6 +11,7 @@ import (
 	"flowpay/api-gateway/internal/middleware"
 	"flowpay/api-gateway/internal/proxy"
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 
@@ -44,51 +45,51 @@ func main() {
 	heartbeatNotifier := heartbeat.New(cfg.DeploymentControllerURL + "/deployment/heartbeat")
 	withHeartbeat := heartbeatNotifier.Middleware
 
-	mux := http.NewServeMux()
+	router := httpx.NewRouter()
 
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("api gateway ok"))
 	})
-	mux.Handle("/metrics", promhttp.Handler())
+	router.Handle("/metrics", promhttp.Handler())
 
 	// auth service - no JWT required
-	mux.Handle("/auth", withHeartbeat(authProxy, cfg.IsProduction))
-	mux.Handle("/auth/", withHeartbeat(authProxy, cfg.IsProduction))
+	router.Handle("/auth", withHeartbeat(authProxy, cfg.IsProduction))
+	router.Handle("/auth/", withHeartbeat(authProxy, cfg.IsProduction))
 
 	// account service - no JWT required
-	mux.Handle("/accounts", withHeartbeat(accountProxy, cfg.IsProduction))
-	mux.Handle("/accounts/", withHeartbeat(accountProxy, cfg.IsProduction))
+	router.Handle("/accounts", withHeartbeat(accountProxy, cfg.IsProduction))
+	router.Handle("/accounts/", withHeartbeat(accountProxy, cfg.IsProduction))
 
 	// account service - JWT required
-	mux.Handle("/accounts/defaults/list", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
-	mux.Handle("/accounts/list", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
-	mux.Handle("/accounts/userinfo", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
-	mux.Handle("/accounts/balance/", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
-	mux.Handle("/accounts/transactions/", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
+	router.Handle("/accounts/defaults/list", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
+	router.Handle("/accounts/list", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
+	router.Handle("/accounts/userinfo", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
+	router.Handle("/accounts/balance/", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
+	router.Handle("/accounts/transactions/", withHeartbeat(withJWT(accountProxy), cfg.IsProduction))
 
 	// payment-service — JWT required
-	mux.Handle("/payments", withHeartbeat(withJWT(paymentProxy), cfg.IsProduction))
-	mux.Handle("/payments/", withHeartbeat(withJWT(paymentProxy), cfg.IsProduction))
+	router.Handle("/payments", withHeartbeat(withJWT(paymentProxy), cfg.IsProduction))
+	router.Handle("/payments/", withHeartbeat(withJWT(paymentProxy), cfg.IsProduction))
 
 	// offer-service — JWT required
-	mux.Handle("/offers", withHeartbeat(withJWT(offerProxy), cfg.IsProduction))
-	mux.Handle("/offers/", withHeartbeat(withJWT(offerProxy), cfg.IsProduction))
+	router.Handle("/offers", withHeartbeat(withJWT(offerProxy), cfg.IsProduction))
+	router.Handle("/offers/", withHeartbeat(withJWT(offerProxy), cfg.IsProduction))
 
 	// notification-service SSE endpoints — JWT via header or ?token= query
 	// param, since EventSource can't set an Authorization header. More
 	// specific than /notification/ above, so they win for these subpaths.
-	mux.Handle("/notification/timeline/", withHeartbeat(withJWTSSE(notificationProxy), cfg.IsProduction))
-	mux.Handle("/notification/fp/metrics", withHeartbeat(withJWTSSE(notificationProxy), cfg.IsProduction))
+	router.Handle("/notification/timeline/", withHeartbeat(withJWTSSE(notificationProxy), cfg.IsProduction))
+	router.Handle("/notification/fp/metrics", withHeartbeat(withJWTSSE(notificationProxy), cfg.IsProduction))
 
 	// notification-service — JWT required
-	mux.Handle("/notification", withHeartbeat(withJWT(notificationProxy), cfg.IsProduction))
-	mux.Handle("/notification/", withHeartbeat(withJWT(notificationProxy), cfg.IsProduction))
+	router.Handle("/notification", withHeartbeat(withJWT(notificationProxy), cfg.IsProduction))
+	router.Handle("/notification/", withHeartbeat(withJWT(notificationProxy), cfg.IsProduction))
 
 	// reconciliation-service — internal, no JWT
-	mux.Handle("/reconciliation/", withHeartbeat(reconciliationProxy, cfg.IsProduction))
+	router.Handle("/reconciliation/", withHeartbeat(reconciliationProxy, cfg.IsProduction))
 
 	corsMiddleware := middleware.CORS(cfg.AllowedOrigins)
 
 	log.Printf("API gateway running on :%s", cfg.Port)
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, corsMiddleware(tracing.TracingMiddleware(constants.ServiceName, mux))))
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, corsMiddleware(tracing.TracingMiddleware(constants.ServiceName, router))))
 }

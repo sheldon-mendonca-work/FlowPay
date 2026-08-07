@@ -11,6 +11,7 @@ import (
 	"flowpay/payment-service/internal/repository"
 	"flowpay/payment-service/internal/service"
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
@@ -56,11 +57,13 @@ func main() {
 	paymentService := service.NewPaymentService(db, redisClient, paymentRepository, transactionRepository, paymentIdempotencyRepository, accountRepository, outboxEventRepository, timelinePublisher)
 	handler := api.NewHandler(paymentService)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/payments/health", getHealthCheck)
-	mux.HandleFunc("/metrics", handleMetrics)
-	mux.HandleFunc("/payments", handler.HandlePayment)
-	mux.HandleFunc("/payments/{paymentID}", handler.HandlePaymentByID)
+	router := httpx.NewRouter()
+
+	router.HandleFunc("/payments/health", getHealthCheck)
+	router.HandleFunc("/metrics", handleMetrics)
+	router.HandleFunc("/payments", handler.HandlePayment)
+	router.HandleFunc("/payments/{paymentID}", handler.HandlePaymentByID)
+
 	log.Println("Payment service running on :" + port)
-	log.Fatal(http.ListenAndServe(":"+port, tracing.TracingMiddleware(paymentServiceConstants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":"+port, tracing.TracingMiddleware(paymentServiceConstants.ServiceName, router)))
 }

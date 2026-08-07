@@ -9,6 +9,7 @@ import (
 	"flowpay/offer-service/internal/repository"
 	"flowpay/offer-service/internal/service"
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/notifications"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
@@ -107,16 +108,16 @@ func main() {
 
 	httpHandler := api.NewHandler(offerService)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/offers/health", getHealthCheck)
-	mux.HandleFunc("/offers/metrics", handleMetrics)
-	mux.HandleFunc("/offers", httpHandler.HandleOfferTransactions)
-	mux.HandleFunc("/offers/list", httpHandler.HandleListOffers)
-	mux.HandleFunc("/offers/{offer_id}/reserve", httpHandler.HandleOfferIdReserveTransactions)
-	mux.HandleFunc("/offers/{offer_id}/redeem", httpHandler.HandleOfferIdRedeemTransactions)
-	mux.HandleFunc("/offers/{offer_id}/status", httpHandler.HandleOfferIdStatusTransactions)
-	mux.HandleFunc("/offers/companies", httpHandler.HandleGetCompanyOffers)
-	mux.HandleFunc("/offers/companies/summary", httpHandler.HandleGetCompanyOffersSummary)
+	router := httpx.NewRouter()
+	router.HandleFunc("/offers/health", getHealthCheck)
+	router.HandleFunc("/offers/metrics", handleMetrics)
+	router.HandleFunc("/offers", httpHandler.HandleOfferTransactions)
+	router.HandleFunc("/offers/list", httpHandler.HandleListOffers)
+	router.HandleFunc("/offers/{offer_id}/reserve", httpHandler.HandleOfferIdReserveTransactions)
+	router.HandleFunc("/offers/{offer_id}/redeem", httpHandler.HandleOfferIdRedeemTransactions)
+	router.HandleFunc("/offers/{offer_id}/status", httpHandler.HandleOfferIdStatusTransactions)
+	router.HandleFunc("/offers/companies", httpHandler.HandleGetCompanyOffers)
+	router.HandleFunc("/offers/companies/summary", httpHandler.HandleGetCompanyOffersSummary)
 	log.Println("Offer service running on :8010")
-	log.Fatal(http.ListenAndServe(":8010", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":8010", tracing.TracingMiddleware(constants.ServiceName, router)))
 }

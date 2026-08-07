@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"flowpay/pkg/healthcheck"
+	"flowpay/pkg/httpx"
 	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/observability/tracing"
 	"flowpay/reconciliation-service/internal/api"
@@ -49,27 +50,27 @@ func main() {
 	)
 	handler := api.NewHandler(reconciliationService)
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health", getHealthCheck)
-	mux.HandleFunc("/metrics", handleMetrics)
+	router := httpx.NewRouter()
+	router.HandleFunc("/health", getHealthCheck)
+	router.HandleFunc("/metrics", handleMetrics)
 
-	mux.HandleFunc("/reconciliation/all", handler.HandleAllReconciliationChecks)
+	router.HandleFunc("/reconciliation/all", handler.HandleAllReconciliationChecks)
 
-	mux.HandleFunc("/reconciliation/payments", handler.HandlePaymentChecks)
-	mux.HandleFunc("/reconciliation/payments/{payment_check_type}", handler.HandleIndividualPaymentCheck)
+	router.HandleFunc("/reconciliation/payments", handler.HandlePaymentChecks)
+	router.HandleFunc("/reconciliation/payments/{payment_check_type}", handler.HandleIndividualPaymentCheck)
 
-	mux.HandleFunc("/reconciliation/idempotency", handler.HandleIdempotencyChecks)
-	mux.HandleFunc("/reconciliation/idempotency/{idempotency_check_type}", handler.HandleIndividualIdempotencyCheck)
+	router.HandleFunc("/reconciliation/idempotency", handler.HandleIdempotencyChecks)
+	router.HandleFunc("/reconciliation/idempotency/{idempotency_check_type}", handler.HandleIndividualIdempotencyCheck)
 
-	mux.HandleFunc("/reconciliation/outbox", handler.HandleOutboxChecks)
-	mux.HandleFunc("/reconciliation/outbox/{outbox_check_type}", handler.HandleIndividualOutboxCheck)
+	router.HandleFunc("/reconciliation/outbox", handler.HandleOutboxChecks)
+	router.HandleFunc("/reconciliation/outbox/{outbox_check_type}", handler.HandleIndividualOutboxCheck)
 
-	mux.HandleFunc("/reconciliation/transactions", handler.HandleTransactionChecks)
-	mux.HandleFunc("/reconciliation/transactions/{transaction_check_type}", handler.HandleIndividualTransactionCheck)
+	router.HandleFunc("/reconciliation/transactions", handler.HandleTransactionChecks)
+	router.HandleFunc("/reconciliation/transactions/{transaction_check_type}", handler.HandleIndividualTransactionCheck)
 
-	mux.HandleFunc("/reconciliation/offers", handler.HandleOfferChecks)
-	mux.HandleFunc("/reconciliation/offers/{offer_check_type}", handler.HandleIndividualOfferCheck)
+	router.HandleFunc("/reconciliation/offers", handler.HandleOfferChecks)
+	router.HandleFunc("/reconciliation/offers/{offer_check_type}", handler.HandleIndividualOfferCheck)
 
 	log.Println("Reconciliation service running on :8013")
-	log.Fatal(http.ListenAndServe(":8013", tracing.TracingMiddleware(constants.ServiceName, mux)))
+	log.Fatal(http.ListenAndServe(":8013", tracing.TracingMiddleware(constants.ServiceName, router)))
 }

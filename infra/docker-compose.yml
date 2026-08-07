@@ -206,14 +206,14 @@ services:
   # ----------------------------
   # 🔍 Jaeger (Tracing)
   # ----------------------------
-  jaeger:
-    image: jaegertracing/all-in-one:1.76.0
-    # container_name: flowpay-jaeger
-    restart: unless-stopped
-    ports:
-      - "16686:16686"   # UI
-      - "6831:6831/udp" # agent
-      - "4318:4318"     # OTLP HTTP
+  # jaeger:
+  #   image: jaegertracing/all-in-one:1.76.0
+  #   # container_name: flowpay-jaeger
+  #   restart: unless-stopped
+  #   ports:
+  #     - "16686:16686"   # UI
+  #     - "6831:6831/udp" # agent
+  #     - "4318:4318"     # OTLP HTTP
 
 volumes:
   postgres_data:
