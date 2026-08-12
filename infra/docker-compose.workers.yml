@@ -1,0 +1,30 @@
+name: "flowpay-workers"
+
+services:
+  outbox-publisher:
+    build:
+      context: ..
+      dockerfile: workers/outbox-publisher/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - ./env/outbox-publisher.env
+
+  offer-outbox-publisher:
+    build:
+      context: ..
+      dockerfile: workers/offer-outbox-publisher/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - ./env/offer-outbox-publisher.env
+
+  offer-expiry-worker:
+    build:
+      context: ..
+      dockerfile: workers/offer-expiry-worker/Dockerfile
+
+    restart: unless-stopped
+    env_file:
+      - ./env/offer-expiry-worker.env
+    

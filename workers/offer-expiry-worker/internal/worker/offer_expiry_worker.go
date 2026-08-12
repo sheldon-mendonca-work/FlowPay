@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	offerExpiryWorkerConstants "flowpay/offer-expiry-worker/internal/constants"
+	"flowpay/offer-expiry-worker/internal/domain"
 	"flowpay/offer-expiry-worker/internal/repository"
 	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
+	metricconstants "flowpay/pkg/observability/metrics/metricConstants"
 	"time"
 )
 
@@ -35,10 +37,12 @@ func (w *OfferExpiryWorker) processBatch(ctx context.Context) error {
 		)
 	}()
 
-	reservations, err := w.offerReservationRepo.ClaimBatch(
-		ctx,
-		w.batchSize,
-	)
+	reservations, err := metrics.MeasureDB2(offerExpiryWorkerConstants.ServiceName, "processBatch.offerReservationRepo.ClaimBatch", metricconstants.OfferReservationRepoDB, func() ([]domain.OfferReservationEntity, error) {
+		return w.offerReservationRepo.ClaimBatch(
+			ctx,
+			w.batchSize,
+		)
+	})
 	if err != nil {
 		metrics.OfferExpiryWorkerFailuresTotal.Inc()
 

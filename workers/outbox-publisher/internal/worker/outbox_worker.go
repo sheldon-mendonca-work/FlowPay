@@ -137,6 +137,10 @@ func (w *OutboxWorker) processEvent(ctx context.Context, event domain.OutboxEven
 	}
 
 	if err != nil {
+		logger.LogEvent(ctx, "ERROR", outboxPublisherConstants.ServiceName,
+			"kafka_publish_failed", logger.Fields{
+				"kafka_error": err.Error(),
+			})
 		err = flowpayOutboxErrors.ErrKafkaPublishFailed
 		return err
 	}

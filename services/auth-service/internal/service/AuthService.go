@@ -18,6 +18,7 @@ import (
 	"flowpay/auth-service/internal/password"
 	"flowpay/auth-service/internal/repository"
 	"flowpay/pkg/observability/metrics"
+	metricconstants "flowpay/pkg/observability/metrics/metricConstants"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -93,10 +94,12 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 	}
 	defer tx.Rollback()
 
-	err = s.credentialsRepo.Create(ctx, tx, domain.Credentials{
-		AccountID:    accountResp.AccountID,
-		Email:        req.Email,
-		PasswordHash: passwordHash,
+	err = metrics.MeasureDB(constants.ServiceName, "Register.credentialsRepo.Create", metricconstants.CredentialsRepoDB, func() error {
+		return s.credentialsRepo.Create(ctx, tx, domain.Credentials{
+			AccountID:    accountResp.AccountID,
+			Email:        req.Email,
+			PasswordHash: passwordHash,
+		})
 	})
 	if err != nil {
 		return nil, authErrors.ErrEmailAlreadyExists
@@ -107,11 +110,13 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, err
 	}
 
-	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
-		ID:        tokenID,
-		AccountID: accountResp.AccountID,
-		TokenHash: repository.HashRefreshToken(rawToken),
-		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	err = metrics.MeasureDB(constants.ServiceName, "Register.refreshTokenRepo.Upsert", metricconstants.RefreshTokenRepoDB, func() error {
+		return s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+			ID:        tokenID,
+			AccountID: accountResp.AccountID,
+			TokenHash: repository.HashRefreshToken(rawToken),
+			ExpiresAt: time.Now().Add(refreshTokenTTL),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -133,7 +138,9 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 }
 
 func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error) {
-	creds, err := s.credentialsRepo.FindByEmail(ctx, req.Email)
+	creds, err := metrics.MeasureDB2(constants.ServiceName, "Login.credentialsRepo.FindByEmail", metricconstants.CredentialsRepoDB, func() (*domain.Credentials, error) {
+		return s.credentialsRepo.FindByEmail(ctx, req.Email)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -156,11 +163,13 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 		return nil, err
 	}
 
-	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
-		ID:        tokenID,
-		AccountID: creds.AccountID,
-		TokenHash: repository.HashRefreshToken(rawToken),
-		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	err = metrics.MeasureDB(constants.ServiceName, "Login.refreshTokenRepo.Upsert", metricconstants.RefreshTokenRepoDB, func() error {
+		return s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+			ID:        tokenID,
+			AccountID: creds.AccountID,
+			TokenHash: repository.HashRefreshToken(rawToken),
+			ExpiresAt: time.Now().Add(refreshTokenTTL),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -184,7 +193,9 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Aut
 func (s *AuthService) Refresh(ctx context.Context, rawToken string) (*dto.AuthResponse, error) {
 	tokenHash := repository.HashRefreshToken(rawToken)
 
-	stored, err := s.refreshTokenRepo.FindByHash(ctx, tokenHash)
+	stored, err := metrics.MeasureDB2(constants.ServiceName, "Refresh.refreshTokenRepo.FindByHash", metricconstants.RefreshTokenRepoDB, func() (*domain.RefreshToken, error) {
+		return s.refreshTokenRepo.FindByHash(ctx, tokenHash)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -206,11 +217,13 @@ func (s *AuthService) Refresh(ctx context.Context, rawToken string) (*dto.AuthRe
 		return nil, err
 	}
 
-	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
-		ID:        newTokenID,
-		AccountID: stored.AccountID,
-		TokenHash: repository.HashRefreshToken(newRawToken),
-		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	err = metrics.MeasureDB(constants.ServiceName, "Refresh.refreshTokenRepo.Upsert", metricconstants.RefreshTokenRepoDB, func() error {
+		return s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+			ID:        newTokenID,
+			AccountID: stored.AccountID,
+			TokenHash: repository.HashRefreshToken(newRawToken),
+			ExpiresAt: time.Now().Add(refreshTokenTTL),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -239,13 +252,14 @@ func (s *AuthService) DefaultLogin(ctx context.Context, accountID string) (*dto.
 	if err == nil {
 		var resp dto.AuthResponse
 		if json.Unmarshal([]byte(cached), &resp) == nil {
-			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
-			metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
-			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success", "").Inc()
+			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success", "").Observe(time.Since(start).Seconds())
 			return &resp, nil
 		}
 	}
-	exists, err := s.defaultCredsRepo.ExistsByAccountID(ctx, accountID)
+	exists, err := metrics.MeasureDB2(constants.ServiceName, "DefaultLogin.defaultCredsRepo.ExistsByAccountID", metricconstants.DefaultCredentialsRepoDB, func() (bool, error) {
+		return s.defaultCredsRepo.ExistsByAccountID(ctx, accountID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -264,11 +278,13 @@ func (s *AuthService) DefaultLogin(ctx context.Context, accountID string) (*dto.
 		return nil, err
 	}
 
-	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
-		ID:        tokenID,
-		AccountID: accountID,
-		TokenHash: repository.HashRefreshToken(rawToken),
-		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	err = metrics.MeasureDB(constants.ServiceName, "DefaultLogin.refreshTokenRepo.Upsert", metricconstants.RefreshTokenRepoDB, func() error {
+		return s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+			ID:        tokenID,
+			AccountID: accountID,
+			TokenHash: repository.HashRefreshToken(rawToken),
+			ExpiresAt: time.Now().Add(refreshTokenTTL),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -283,9 +299,8 @@ func (s *AuthService) DefaultLogin(ctx context.Context, accountID string) (*dto.
 		return nil, err
 	}
 
-	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
-	metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
-	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success", "").Inc()
+	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success", "").Observe(time.Since(start).Seconds())
 
 	var resp dto.AuthResponse
 	resp = dto.AuthResponse{
@@ -308,13 +323,15 @@ func (s *AuthService) DefaultLoginAccount(ctx context.Context, accountID, accoun
 	if err == nil {
 		var resp dto.AuthResponse
 		if json.Unmarshal([]byte(cached), &resp) == nil {
-			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
-			metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
-			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success", accountType).Inc()
+			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success", accountType).Observe(time.Since(start).Seconds())
 			return &resp, nil
 		}
 	}
-	exists, err := s.defaultCredsRepo.ExistsByAccountIDAsAccount(ctx, accountID)
+	exists, err := metrics.MeasureDB2(constants.ServiceName, "DefaultLoginAccount.defaultCredsRepo.ExistsByAccountIDAsAccount", metricconstants.DefaultCredentialsRepoDB, func() (bool, error) {
+		return s.defaultCredsRepo.ExistsByAccountIDAsAccount(ctx, accountID)
+	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -333,11 +350,13 @@ func (s *AuthService) DefaultLoginAccount(ctx context.Context, accountID, accoun
 		return nil, err
 	}
 
-	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
-		ID:        tokenID,
-		AccountID: accountID,
-		TokenHash: repository.HashRefreshToken(rawToken),
-		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	err = metrics.MeasureDB(constants.ServiceName, "DefaultLoginAccount.refreshTokenRepo.Upsert", metricconstants.RefreshTokenRepoDB, func() error {
+		return s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+			ID:        tokenID,
+			AccountID: accountID,
+			TokenHash: repository.HashRefreshToken(rawToken),
+			ExpiresAt: time.Now().Add(refreshTokenTTL),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -352,9 +371,8 @@ func (s *AuthService) DefaultLoginAccount(ctx context.Context, accountID, accoun
 		return nil, err
 	}
 
-	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
-	metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
-	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success", accountType).Inc()
+	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success", accountType).Observe(time.Since(start).Seconds())
 
 	var resp dto.AuthResponse
 	resp = dto.AuthResponse{
@@ -376,13 +394,14 @@ func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountTy
 	if err == nil {
 		var resp dto.AuthResponse
 		if json.Unmarshal([]byte(cached), &resp) == nil {
-			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success").Inc()
-			metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
-			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+			metrics.AuthDefaultLoginRedisCount.WithLabelValues(constants.ServiceName, "success", accountType).Inc()
+			metrics.AuthDefaultLoginUserRequestRedisDuration.WithLabelValues(constants.ServiceName, "success", accountType).Observe(time.Since(start).Seconds())
 			return &resp, nil
 		}
 	}
-	exists, err := s.defaultCredsRepo.ExistsByAccountIDAsUser(ctx, accountID)
+	exists, err := metrics.MeasureDB2(constants.ServiceName, "DefaultLoginUser.defaultCredsRepo.ExistsByAccountIDAsUser", metricconstants.DefaultCredentialsRepoDB, func() (bool, error) {
+		return s.defaultCredsRepo.ExistsByAccountIDAsUser(ctx, accountID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -401,11 +420,13 @@ func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountTy
 		return nil, err
 	}
 
-	err = s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
-		ID:        tokenID,
-		AccountID: accountID,
-		TokenHash: repository.HashRefreshToken(rawToken),
-		ExpiresAt: time.Now().Add(refreshTokenTTL),
+	err = metrics.MeasureDB(constants.ServiceName, "DefaultLoginUser.refreshTokenRepo.Upsert", metricconstants.RefreshTokenRepoDB, func() error {
+		return s.refreshTokenRepo.Upsert(ctx, tx, domain.RefreshToken{
+			ID:        tokenID,
+			AccountID: accountID,
+			TokenHash: repository.HashRefreshToken(rawToken),
+			ExpiresAt: time.Now().Add(refreshTokenTTL),
+		})
 	})
 	if err != nil {
 		return nil, err
@@ -420,9 +441,8 @@ func (s *AuthService) DefaultLoginUser(ctx context.Context, accountID, accountTy
 		return nil, err
 	}
 
-	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success").Inc()
-	metrics.AuthDefaultLoginUserRequestsTotal.WithLabelValues(constants.ServiceName, "success").Inc()
-	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success").Observe(time.Since(start).Seconds())
+	metrics.AuthDefaultLoginDatabaseCount.WithLabelValues(constants.ServiceName, "success", accountType).Inc()
+	metrics.AuthDefaultLoginUserRequestDBDuration.WithLabelValues(constants.ServiceName, "success", accountType).Observe(time.Since(start).Seconds())
 
 	var resp dto.AuthResponse
 	resp = dto.AuthResponse{

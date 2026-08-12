@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"flowpay/pkg/observability/logger"
+	"flowpay/pkg/observability/metrics"
 
 	"github.com/segmentio/kafka-go"
 )
@@ -82,10 +83,13 @@ func (p *TimelinePublisher) Publish(ctx context.Context, serviceName string, pay
 		return
 	}
 
-	if err := p.writer.WriteMessages(ctx, kafka.Message{
-		Key:   []byte(traceID),
-		Value: payload,
-	}); err != nil {
+	err = metrics.MeasureKafkaPublish(serviceName, p.writer.Topic, func() error {
+		return p.writer.WriteMessages(ctx, kafka.Message{
+			Key:   []byte(traceID),
+			Value: payload,
+		})
+	})
+	if err != nil {
 		logger.LogEvent(ctx, "WARN", serviceName, "timeline_event_publish_failed", logger.Fields{
 			"trace_id":  traceID,
 			"step_name": stepName,

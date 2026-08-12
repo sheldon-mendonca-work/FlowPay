@@ -2,6 +2,8 @@ package kafka
 
 import (
 	"context"
+	outboxPublisherConstants "flowpay/outbox-publisher/internal/constants"
+	"flowpay/pkg/observability/metrics"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -23,10 +25,20 @@ func NewProducer(brokers []string, topic string) *KafkaProducer {
 }
 
 func (p *KafkaProducer) Publish(ctx context.Context, key string, eventId string, value []byte) error {
-	return p.writer.WriteMessages(ctx,
-		kafka.Message{
-			Key:   []byte(key),
-			Value: value,
-		},
-	)
+	err := metrics.MeasureKafkaPublish(outboxPublisherConstants.ServiceName, p.writer.Topic, func() error {
+		return p.writer.WriteMessages(
+			ctx,
+			kafka.Message{
+				Key:   []byte(key),
+				Value: value,
+				Headers: []kafka.Header{
+					{
+						Key:   "event_id",
+						Value: []byte(eventId),
+					},
+				},
+			},
+		)
+	})
+	return err
 }

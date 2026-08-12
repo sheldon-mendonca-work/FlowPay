@@ -17,6 +17,8 @@ func main() {
 
 	db := db.InitDB()
 	defer db.Close()
+	metrics.InitMetrics()
+	metrics.InitInfraMetrics()
 	metrics.InitOfferExpiryWorkerMetrics()
 
 	offerRepository := repository.NewOfferRepository(db)

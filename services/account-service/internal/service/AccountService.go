@@ -15,6 +15,7 @@ import (
 	accountErrors "flowpay/account-service/internal/errors"
 	"flowpay/account-service/internal/repository"
 	"flowpay/pkg/observability/metrics"
+	metricconstants "flowpay/pkg/observability/metrics/metricConstants"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -70,14 +71,17 @@ func (s *AccountService) CreateAccount(ctx context.Context, req dto.CreateAccoun
 	}
 	defer tx.Rollback()
 
-	if err := s.accountRepo.Create(ctx, tx, domain.Account{
-		ID:            id,
-		AccountName:   req.AccountName,
-		PaymentHandle: req.PaymentHandle,
-		AccountType:   accountType,
-		Balance:       0,
-		Currency:      req.Currency,
-	}); err != nil {
+	err = metrics.MeasureDB(constants.ServiceName, "CreateAccount.accountRepo.Create", metricconstants.AccountRepoDB, func() error {
+		return s.accountRepo.Create(ctx, tx, domain.Account{
+			ID:            id,
+			AccountName:   req.AccountName,
+			PaymentHandle: req.PaymentHandle,
+			AccountType:   accountType,
+			Balance:       0,
+			Currency:      req.Currency,
+		})
+	})
+	if err != nil {
 		return nil, err
 	}
 
@@ -104,13 +108,17 @@ func (s *AccountService) CreateCompany(ctx context.Context, req dto.CreateCompan
 	}
 	defer tx.Rollback()
 
-	if err := s.companyRepo.Create(ctx, tx, domain.Company{
-		ID:           id,
-		Name:         req.Name,
-		BusinessName: req.BusinessName,
-		EmailID:      req.EmailID,
-		PhoneNumber:  req.PhoneNumber,
-	}); err != nil {
+	err = metrics.MeasureDB(constants.ServiceName, "CreateCompany.companyRepo.Create", "companies", func() error {
+		return s.companyRepo.Create(ctx, tx, domain.Company{
+			ID:           id,
+			Name:         req.Name,
+			BusinessName: req.BusinessName,
+			EmailID:      req.EmailID,
+			PhoneNumber:  req.PhoneNumber,
+		})
+	})
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -138,7 +146,10 @@ func (s *AccountService) CreateUser(ctx context.Context, req dto.CreateUserReque
 	// Resolve account
 	accountID := strings.TrimSpace(req.AccountID)
 	if accountID != "" {
-		acc, err := s.accountRepo.FindByID(ctx, accountID)
+		acc, err := metrics.MeasureDB2(constants.ServiceName, "CreateUser.accountRepo.FindByID", metricconstants.AccountRepoDB, func() (*domain.Account, error) {
+			return s.accountRepo.FindByID(ctx, accountID)
+		})
+
 		if err != nil {
 			return nil, err
 		}
@@ -154,14 +165,18 @@ func (s *AccountService) CreateUser(ctx context.Context, req dto.CreateUserReque
 		if accountType == "" {
 			accountType = "USER"
 		}
-		if err := s.accountRepo.Create(ctx, tx, domain.Account{
-			ID:            id,
-			AccountName:   req.AccountName,
-			PaymentHandle: req.PaymentHandle,
-			AccountType:   accountType,
-			Balance:       0,
-			Currency:      req.Currency,
-		}); err != nil {
+		err = metrics.MeasureDB(constants.ServiceName, "CreateUser.accountRepo.Create", metricconstants.AccountRepoDB, func() error {
+			return s.accountRepo.Create(ctx, tx, domain.Account{
+				ID:            id,
+				AccountName:   req.AccountName,
+				PaymentHandle: req.PaymentHandle,
+				AccountType:   accountType,
+				Balance:       0,
+				Currency:      req.Currency,
+			})
+		})
+
+		if err != nil {
 			return nil, err
 		}
 		accountID = id
@@ -170,7 +185,10 @@ func (s *AccountService) CreateUser(ctx context.Context, req dto.CreateUserReque
 	// Resolve company (optional)
 	companyID := strings.TrimSpace(req.CompanyID)
 	if companyID != "" {
-		comp, err := s.companyRepo.FindByID(ctx, companyID)
+		comp, err := metrics.MeasureDB2(constants.ServiceName, "CreateUser.companyRepo.FindByID", "companies", func() (*domain.Company, error) {
+			return s.companyRepo.FindByID(ctx, companyID)
+		})
+
 		if err != nil {
 			return nil, err
 		}
@@ -182,13 +200,16 @@ func (s *AccountService) CreateUser(ctx context.Context, req dto.CreateUserReque
 		if err != nil {
 			return nil, err
 		}
-		if err := s.companyRepo.Create(ctx, tx, domain.Company{
-			ID:           id,
-			Name:         req.CompanyName,
-			BusinessName: req.CompanyBusinessName,
-			EmailID:      req.CompanyEmailID,
-			PhoneNumber:  req.CompanyPhoneNumber,
-		}); err != nil {
+		err = metrics.MeasureDB(constants.ServiceName, "CreateUser.companyRepo.Create", "companies", func() error {
+			return s.companyRepo.Create(ctx, tx, domain.Company{
+				ID:           id,
+				Name:         req.CompanyName,
+				BusinessName: req.CompanyBusinessName,
+				EmailID:      req.CompanyEmailID,
+				PhoneNumber:  req.CompanyPhoneNumber,
+			})
+		})
+		if err != nil {
 			return nil, err
 		}
 		companyID = id
@@ -199,11 +220,13 @@ func (s *AccountService) CreateUser(ctx context.Context, req dto.CreateUserReque
 		return nil, err
 	}
 
-	if err := s.userRepo.Create(ctx, tx, domain.User{
-		ID:        userID,
-		AccountID: accountID,
-		CompanyID: companyID,
-		Role:      req.Role,
+	if err := metrics.MeasureDB(constants.ServiceName, "CreateUser.userRepo.Create", metricconstants.UserRepoDB, func() error {
+		return s.userRepo.Create(ctx, tx, domain.User{
+			ID:        userID,
+			AccountID: accountID,
+			CompanyID: companyID,
+			Role:      req.Role,
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -291,7 +314,9 @@ func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dt
 		}
 	}
 
-	account, err := s.accountRepo.FindByID(ctx, accountID)
+	account, err := metrics.MeasureDB2(constants.ServiceName, "GetUserInfo.accountRepo.FindByID", metricconstants.AccountRepoDB, func() (*domain.Account, error) {
+		return s.accountRepo.FindByID(ctx, accountID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +334,10 @@ func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dt
 		AllowNegativeBalance: account.AllowNegativeBalance,
 	}
 
-	user, err := s.userRepo.FindByAccountID(ctx, accountID)
+	user, err := metrics.MeasureDB2(constants.ServiceName, "GetUserInfo.userRepo.FindByAccountID", metricconstants.UserRepoDB, func() (*domain.User, error) {
+		return s.userRepo.FindByAccountID(ctx, accountID)
+	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +346,10 @@ func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dt
 		resp.Role = &user.Role
 
 		if user.CompanyID != "" {
-			company, err := s.companyRepo.FindByID(ctx, user.CompanyID)
+			company, err := metrics.MeasureDB2(constants.ServiceName, "GetUserInfo.companyRepo.FindByID", metricconstants.CompaniesRepoDB, func() (*domain.Company, error) {
+				return s.companyRepo.FindByID(ctx, user.CompanyID)
+			})
+
 			if err != nil {
 				return nil, err
 			}
@@ -340,7 +371,9 @@ func (s *AccountService) GetUserInfo(ctx context.Context, accountID string) (*dt
 
 func (s *AccountService) GetUserByID(ctx context.Context, userID string) (*dto.UserResponse, error) {
 
-	user, err := s.userRepo.FindByID(ctx, userID)
+	user, err := metrics.MeasureDB2(constants.ServiceName, "GetUserByID.userRepo.FindByID", metricconstants.UserRepoDB, func() (*domain.User, error) {
+		return s.userRepo.FindByID(ctx, userID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -348,7 +381,9 @@ func (s *AccountService) GetUserByID(ctx context.Context, userID string) (*dto.U
 		return nil, accountErrors.ErrUserNotFound
 	}
 
-	account, err := s.accountRepo.FindByID(ctx, user.AccountID)
+	account, err := metrics.MeasureDB2(constants.ServiceName, "GetUserByID.accountRepo.FindByID", metricconstants.AccountRepoDB, func() (*domain.Account, error) {
+		return s.accountRepo.FindByID(ctx, user.AccountID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +403,9 @@ func (s *AccountService) GetUserByID(ctx context.Context, userID string) (*dto.U
 	}
 
 	if user.CompanyID != "" {
-		company, err := s.companyRepo.FindByID(ctx, user.CompanyID)
+		company, err := metrics.MeasureDB2(constants.ServiceName, "GetUserByID.companyRepo.FindByID", metricconstants.CompaniesRepoDB, func() (*domain.Company, error) {
+			return s.companyRepo.FindByID(ctx, user.CompanyID)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -383,7 +420,9 @@ func (s *AccountService) GetUserByID(ctx context.Context, userID string) (*dto.U
 }
 
 func (s *AccountService) GetUserByPaymentHandle(ctx context.Context, paymentHandle string) (*dto.UserResponse, error) {
-	account, err := s.accountRepo.FindByPaymentHandle(ctx, paymentHandle)
+	account, err := metrics.MeasureDB2(constants.ServiceName, "GetUserByPaymentHandle.accountRepo.FindByPaymentHandle", metricconstants.AccountRepoDB, func() (*domain.Account, error) {
+		return s.accountRepo.FindByPaymentHandle(ctx, paymentHandle)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -391,18 +430,27 @@ func (s *AccountService) GetUserByPaymentHandle(ctx context.Context, paymentHand
 		return nil, accountErrors.ErrUserNotFound
 	}
 
-	user, err := s.userRepo.FindByAccountID(ctx, account.ID)
+	user, err := metrics.MeasureDB2(constants.ServiceName, "GetUserByPaymentHandle.userRepo.FindByAccountID", "users", func() (*domain.User, error) {
+		return s.userRepo.FindByAccountID(ctx, account.ID)
+	})
 	if err != nil {
 		return nil, err
 	}
-	if user == nil {
-		return nil, accountErrors.ErrUserNotFound
+
+	userId := ""
+	userRole := ""
+	userCompanyID := ""
+
+	if user != nil {
+		userId = user.ID
+		userRole = user.Role
+		userCompanyID = user.CompanyID
 	}
 
 	resp := &dto.UserResponse{
-		UserID:        user.ID,
+		UserID:        userId,
 		AccountID:     account.ID,
-		Role:          user.Role,
+		Role:          userRole,
 		AccountName:   account.AccountName,
 		PaymentHandle: account.PaymentHandle,
 		AccountType:   account.AccountType,
@@ -410,8 +458,11 @@ func (s *AccountService) GetUserByPaymentHandle(ctx context.Context, paymentHand
 		Currency:      account.Currency,
 	}
 
-	if user.CompanyID != "" {
-		company, err := s.companyRepo.FindByID(ctx, user.CompanyID)
+	if userCompanyID != "" {
+		company, err := metrics.MeasureDB2(constants.ServiceName, "GetUserByPaymentHandle.companyRepo.FindByID", "companies", func() (*domain.Company, error) {
+			return s.companyRepo.FindByID(ctx, userCompanyID)
+		})
+
 		if err != nil {
 			return nil, err
 		}
@@ -429,13 +480,19 @@ func (s *AccountService) GetDefaultList(ctx context.Context, callerAccountID, li
 	resp := &dto.DefaultListResponse{Type: listType}
 	switch listType {
 	case "accounts":
-		accounts, err := s.defaultCredsRepo.ListAccountsExcluding(ctx, callerAccountID)
+		accounts, err := metrics.MeasureDB2(constants.ServiceName, "GetDefaultList.defaultCredsRepo.ListAccountsExcluding", "defaultcredentials.accounts.users.companies", func() ([]dto.DefaultAccountItem, error) {
+			return s.defaultCredsRepo.ListAccountsExcluding(ctx, callerAccountID)
+		})
+
 		if err != nil {
 			return nil, err
 		}
 		resp.Accounts = accounts
 	case "company":
-		sysAccounts, err := s.defaultCredsRepo.ListSystemAccounts(ctx)
+		sysAccounts, err := metrics.MeasureDB2(constants.ServiceName, "GetDefaultList.defaultCredsRepo.ListSystemAccounts", "defaultcredentials.accounts", func() ([]dto.DefaultSystemAccountItem, error) {
+			return s.defaultCredsRepo.ListSystemAccounts(ctx)
+		})
+
 		if err != nil {
 			return nil, err
 		}
@@ -447,7 +504,10 @@ func (s *AccountService) GetDefaultList(ctx context.Context, callerAccountID, li
 }
 
 func (s *AccountService) ListUserAccounts(ctx context.Context, callerAccountID, search string, page, pageSize int) (*dto.ListAccountsResponse, error) {
-	accounts, total, err := s.accountRepo.ListPaged(ctx, callerAccountID, search, page, pageSize)
+	accounts, total, err := metrics.MeasureDB3(constants.ServiceName, "GetDefaultList.defaultCredsRepo.ListPaged", metricconstants.AccountRepoDB, func() ([]dto.AccountListItem, int, error) {
+		return s.accountRepo.ListPaged(ctx, callerAccountID, search, page, pageSize)
+	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +520,10 @@ func (s *AccountService) ListUserAccounts(ctx context.Context, callerAccountID, 
 }
 
 func (s *AccountService) GetDefaultAccounts(ctx context.Context) (*dto.ListDefaultAccountsResponse, error) {
-	items, err := s.defaultCredsRepo.ListAccounts(ctx)
+	items, err := metrics.MeasureDB2(constants.ServiceName, "GetDefaultAccounts.defaultCredsRepo.ListAccounts", metricconstants.AccountRepoDB, func() ([]dto.DefaultAccountItem, error) {
+		return s.defaultCredsRepo.ListAccounts(ctx)
+	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -468,7 +531,10 @@ func (s *AccountService) GetDefaultAccounts(ctx context.Context) (*dto.ListDefau
 }
 
 func (s *AccountService) GetDefaultUsers(ctx context.Context) (*dto.ListDefaultUsersResponse, error) {
-	items, err := s.defaultCredsRepo.ListUsers(ctx)
+	items, err := metrics.MeasureDB2(constants.ServiceName, "GetDefaultUsers.defaultCredsRepo.ListUsers", "defaultcredentials.users.accounts", func() ([]dto.DefaultUserItem, error) {
+		return s.defaultCredsRepo.ListUsers(ctx)
+	})
+
 	if err != nil {
 		return nil, err
 	}
@@ -476,7 +542,9 @@ func (s *AccountService) GetDefaultUsers(ctx context.Context) (*dto.ListDefaultU
 }
 
 func (s *AccountService) GetDefaultCompanies(ctx context.Context) (*dto.ListDefaultCompaniesResponse, error) {
-	items, err := s.defaultCredsRepo.ListCompanies(ctx)
+	items, err := metrics.MeasureDB2(constants.ServiceName, "GetDefaultCompanies.defaultCredsRepo.ListCompanies", metricconstants.DefaultCredentialsRepoDB+"."+metricconstants.UserRepoDB+"."+metricconstants.AccountRepoDB+"."+metricconstants.CompaniesRepoDB, func() ([]dto.DefaultCompanyItem, error) {
+		return s.defaultCredsRepo.ListCompanies(ctx)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +552,9 @@ func (s *AccountService) GetDefaultCompanies(ctx context.Context) (*dto.ListDefa
 }
 
 func (s *AccountService) GetBalance(ctx context.Context, accountID string) (*dto.BalanceResponse, error) {
-	account, err := s.accountRepo.FindByID(ctx, accountID)
+	account, err := metrics.MeasureDB2(constants.ServiceName, "GetBalance.accountRepo.FindByID", metricconstants.AccountRepoDB, func() (*domain.Account, error) {
+		return s.accountRepo.FindByID(ctx, accountID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -495,7 +565,9 @@ func (s *AccountService) GetBalance(ctx context.Context, accountID string) (*dto
 }
 
 func (s *AccountService) GetTransactions(ctx context.Context, accountID string, page, pageSize int) (*dto.TransactionsListResponse, error) {
-	account, err := s.accountRepo.FindByID(ctx, accountID)
+	account, err := metrics.MeasureDB2(constants.ServiceName, "GetTransactions.accountRepo.FindByID", metricconstants.AccountRepoDB, func() (*domain.Account, error) {
+		return s.accountRepo.FindByID(ctx, accountID)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +575,9 @@ func (s *AccountService) GetTransactions(ctx context.Context, accountID string, 
 		return nil, accountErrors.ErrAccountNotFound
 	}
 
-	transactions, total, err := s.transactionsRepo.ListPagedByAccountID(ctx, accountID, page, pageSize)
+	transactions, total, err := metrics.MeasureDB3(constants.ServiceName, "GetTransactions.transactionsRepo.ListPagedByAccountID", metricconstants.TransactionsRepoDB, func() ([]domain.Transaction, int, error) {
+		return s.transactionsRepo.ListPagedByAccountID(ctx, accountID, page, pageSize)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +605,9 @@ func (s *AccountService) GetTransactions(ctx context.Context, accountID string, 
 }
 
 func (s *AccountService) GetTransactionsByPaymentID(ctx context.Context, paymentID string) (*dto.PaymentTransactionsResponse, error) {
-	transactions, err := s.transactionsRepo.ListByPaymentID(ctx, paymentID)
+	transactions, err := metrics.MeasureDB2(constants.ServiceName, "GetTransactionsByPaymentID.transactionsRepo.ListByPaymentID", metricconstants.TransactionsRepoDB, func() ([]domain.Transaction, error) {
+		return s.transactionsRepo.ListByPaymentID(ctx, paymentID)
+	})
 	if err != nil {
 		return nil, err
 	}

@@ -82,7 +82,7 @@ var AuthDefaultLoginRedisCount = prometheus.NewCounterVec(
 		Name: "auth_default_login_redis",
 		Help: "Total No of Default Auth Login Served From Redis",
 	},
-	[]string{"service", "outcome"},
+	[]string{"service", "outcome", "account_type"},
 )
 
 var AuthDefaultLoginDatabaseCount = prometheus.NewCounterVec(
@@ -90,7 +90,7 @@ var AuthDefaultLoginDatabaseCount = prometheus.NewCounterVec(
 		Name: "auth_default_login_db",
 		Help: "Total No of Default Auth Login Served From Database",
 	},
-	[]string{"service", "outcome"},
+	[]string{"service", "outcome", "account_type"},
 )
 
 var AuthDefaultLoginRequestsTotal = prometheus.NewCounterVec(

@@ -34,6 +34,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 func main() {
 	healthcheck.RunIfRequested("http://localhost:8008/notification/health")
 
+	metrics.InitMetrics()
 	metrics.InitNotificationMetrics()
 
 	db := infra.InitDB()

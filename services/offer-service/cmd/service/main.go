@@ -35,6 +35,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 func main() {
 	healthcheck.RunIfRequested("http://localhost:8010/offers/health")
 
+	metrics.InitMetrics()
 	metrics.InitOfferMetrics()
 	db := infra.InitDB()
 

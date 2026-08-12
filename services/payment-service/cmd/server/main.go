@@ -31,6 +31,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 func main() {
 	healthcheck.RunIfRequested("http://localhost:8001/payments/health")
 
+	metrics.InitMetrics()
 	metrics.InitPaymentMetrics()
 	port := utils.GetEnv("PORT", "8001")
 	if port == "" {

@@ -30,6 +30,7 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 func main() {
 	healthcheck.RunIfRequested("http://localhost:8007/auth/health")
 
+	metrics.InitMetrics()
 	metrics.InitAuthMetrics()
 
 	cfg := config.Load()

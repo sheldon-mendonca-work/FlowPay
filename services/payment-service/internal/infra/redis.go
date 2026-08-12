@@ -1,33 +1,23 @@
 package infra
 
 import (
-	"context"
 	"flowpay/pkg/utils"
-	"log"
-	"os"
-	"time"
+	"strconv"
 
 	"github.com/redis/go-redis/v9"
 )
 
 func InitRedis() *redis.Client {
-	addr := utils.GetEnv("REDIS_ADDR", "localhost:6379")
-	password := os.Getenv("REDIS_PASSWORD")
-	db := 0
+	host := utils.GetEnv("REDIS_HOST", "localhost")
+	port := utils.GetEnv("REDIS_PORT", "6379")
+	password := utils.GetEnv("REDIS_PASSWORD", "")
+	dbType, _ := strconv.Atoi(utils.GetEnv("REDIS_DB", "0"))
 
-	redisClient := redis.NewClient(&redis.Options{
-		Addr:     addr,
+	address := host + ":" + port
+
+	return redis.NewClient(&redis.Options{
+		Addr:     address,
 		Password: password,
-		DB:       db,
+		DB:       dbType,
 	})
-
-	ctx, cancel := context.WithTimeout(context.Background(), 16500*time.Millisecond)
-	defer cancel()
-
-	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Fatalf("failed to connect to Redis at %s: %v", addr, err)
-	}
-
-	log.Printf("Redis client configured for addr=%s", addr)
-	return redisClient
 }

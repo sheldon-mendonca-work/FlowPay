@@ -7,6 +7,7 @@ import (
 	"flowpay/offer-outbox-publisher/internal/repo"
 	"flowpay/offer-outbox-publisher/internal/worker"
 	"flowpay/pkg/notifications"
+	"flowpay/pkg/observability/metrics"
 	"flowpay/pkg/utils"
 	"log"
 	"os/signal"
@@ -15,6 +16,8 @@ import (
 )
 
 func main() {
+	metrics.InitInfraMetrics()
+
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 

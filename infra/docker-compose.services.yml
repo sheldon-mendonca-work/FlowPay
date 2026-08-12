@@ -135,25 +135,28 @@ services:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    
+    restart: unless-stopped
 
     env_file:
       - ./env/payment-executor.env
 
-  reconciliation-service:
-    build:
-      context: ..
-      dockerfile: services/reconciliation-service/Dockerfile
+  # reconciliation-service:
+  #   build:
+  #     context: ..
+  #     dockerfile: services/reconciliation-service/Dockerfile
 
-    depends_on:
-      postgres:
-        condition: service_healthy
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
 
-    restart: unless-stopped
-    env_file:
-      - ./env/reconciliation-service.env
-    healthcheck:
-      test: ["CMD", "/reconciliation-service", "healthcheck"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+  #   restart: unless-stopped
+  #   env_file:
+  #     - ./env/reconciliation-service.env
+  #   healthcheck:
+  #     test: ["CMD", "/reconciliation-service", "healthcheck"]
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
+  #     start_period: 10s
+  

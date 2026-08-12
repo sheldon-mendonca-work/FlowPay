@@ -22,6 +22,7 @@ func main() {
 	healthcheck.RunIfRequested("http://localhost:8000/health")
 
 	cfg := config.Load()
+	metrics.InitMetrics()
 	metrics.InitGatewayMetrics()
 
 	paymentProxy := proxy.New(cfg.PaymentServiceURL, constants.ServiceName)
