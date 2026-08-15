@@ -26,6 +26,8 @@ func main() {
 	region := utils.GetEnv("AWS_REGION", "")
 	instanceID := utils.GetEnv("FLOWPAY_INSTANCE_ID", "")
 
+	log.Println(port + "--------" + region + "--------" + instanceID + "--------")
+
 	idleTimeoutMinutes, err := strconv.Atoi(utils.GetEnv("IDLE_TIMEOUT_MINUTES", "60"))
 	if err != nil {
 		log.Fatalf("invalid IDLE_TIMEOUT_MINUTES: %v", err)

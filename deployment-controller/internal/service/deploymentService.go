@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	awsec2 "flowpay/deployment-controller/internal/aws"
 	"flowpay/deployment-controller/internal/state"
+	"flowpay/deployment-controller/internal/utils"
 )
 
 // maxWait bounds how long a single Start/Stop operation will poll AWS and
@@ -76,6 +78,8 @@ func (s *DeploymentService) StartInstance(ctx context.Context) (StatusResponse, 
 		return StatusResponse{}, err
 	}
 
+	s.Heartbeat()
+
 	return StatusResponse{Status: StateRunning, PublicIP: publicIP}, nil
 }
 
@@ -122,11 +126,22 @@ func (s *DeploymentService) Status(ctx context.Context) (StatusResponse, error) 
 		return StatusResponse{}, err
 	}
 
+	log.Println(info)
+	log.Println("FLOWPAY_API_BASE_URL" + utils.GetEnv("FLOWPAY_API_BASE_URL", ""))
 	switch info.State {
 	case awsec2.StateRunning:
-		if s.isHealthy(ctx, info.PublicIP) {
-			return StatusResponse{Status: StateRunning, PublicIP: info.PublicIP}, nil
+		healthURL := fmt.Sprintf("http://%s/health", info.PublicIP)
+		if apiURL := utils.GetEnv("FLOWPAY_API_BASE_URL", ""); apiURL != "" {
+			healthURL = strings.TrimRight(apiURL, "/") + "/health"
 		}
+
+		if s.isHealthy(ctx, healthURL) {
+			return StatusResponse{
+				Status:   StateRunning,
+				PublicIP: info.PublicIP,
+			}, nil
+		}
+
 		return StatusResponse{Status: StateStarting}, nil
 	case awsec2.StatePending:
 		return StatusResponse{Status: StateStarting}, nil
@@ -229,10 +244,13 @@ func (s *DeploymentService) waitForHealthy(ctx context.Context, publicIP string)
 	}
 }
 
-func (s *DeploymentService) isHealthy(ctx context.Context, publicIP string) bool {
-	url := fmt.Sprintf("http://%s:%s/health", publicIP, s.healthPort)
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func (s *DeploymentService) isHealthy(ctx context.Context, healthURL string) bool {
+	req, err := http.NewRequestWithContext(
+		ctx,
+		http.MethodGet,
+		healthURL,
+		nil,
+	)
 	if err != nil {
 		return false
 	}

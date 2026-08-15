@@ -10,6 +10,7 @@ import (
 	"flowpay/pkg/observability/logger"
 	responseTypes "flowpay/pkg/types"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -83,6 +84,7 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 		WriteJSONError(w, flowpayNotificationErrors.ErrTraceIDRequired.Error(), http.StatusBadRequest)
 		return
 	}
+	log.Printf("SSE connection requested trace_id=%s", traceID)
 
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -92,19 +94,34 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 
 	updates, unsubscribe := h.notificationService.Subscribe(traceID)
 	defer unsubscribe()
+	log.Printf("SSE subscribed trace_id=%s", traceID)
 
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
+	log.Printf("SSE headers written trace_id=%s", traceID)
+
 	if timeline, err := h.notificationService.GetTimeline(ctx, traceID); err != nil {
+		log.Printf("SSE snapshot failed trace_id=%s err=%v", traceID, err)
+
 		logger.LogEvent(ctx, "ERROR", constants.ServiceName, "notification_timeline_snapshot_failed", logger.Fields{
 			"trace_id": traceID,
 			"error":    err.Error(),
 		})
-	} else if writeSSEEvent(w, timeline) == nil {
+	} else {
+		log.Printf("SSE snapshot loaded trace_id=%s", traceID)
+
+		if err := writeSSEEvent(w, timeline); err != nil {
+			log.Printf("SSE snapshot write failed trace_id=%s err=%v", traceID, err)
+			return
+		}
+
+		log.Printf("SSE snapshot written, flushing trace_id=%s", traceID)
 		flusher.Flush()
+		log.Printf("SSE snapshot flushed trace_id=%s", traceID)
 	}
 
 	heartbeat := time.NewTicker(timelineHeartbeatInterval)
@@ -116,12 +133,16 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 			return
 		case timeline, open := <-updates:
 			if !open {
+				log.Printf("SSE subscription closed trace_id=%s", traceID)
 				return
 			}
+			log.Printf("SSE update received trace_id=%s", traceID)
 			if writeSSEEvent(w, timeline) != nil {
+				log.Printf("SSE update write failed trace_id=%s err=%v", traceID, err)
 				return
 			}
 			flusher.Flush()
+			log.Printf("SSE update flushed trace_id=%s", traceID)
 		case <-heartbeat.C:
 			if _, err := fmt.Fprint(w, ": heartbeat\n\n"); err != nil {
 				return

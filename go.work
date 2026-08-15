@@ -1,16 +1,17 @@
 go 1.26.5
 
 use (
+	./deployment-controller
 	./pkg
+	./services/account-service
 	./services/api-gateway
 	./services/auth-service
-	./services/account-service
+	./services/notification-service
 	./services/offer-service
 	./services/payment-executor
-	./services/notification-service
-	./workers/offer-expiry-worker
-	./workers/offer-outbox-publisher
 	./services/payment-service
 	./services/reconciliation-service
+	./workers/offer-expiry-worker
+	./workers/offer-outbox-publisher
 	./workers/outbox-publisher
 )
