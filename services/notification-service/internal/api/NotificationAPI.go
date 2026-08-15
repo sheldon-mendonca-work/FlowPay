@@ -137,7 +137,7 @@ func (h *Handler) HandleNotificationTimelineStream(w http.ResponseWriter, r *htt
 				return
 			}
 			log.Printf("SSE update received trace_id=%s", traceID)
-			if writeSSEEvent(w, timeline) != nil {
+			if err := writeSSEEvent(w, timeline); err != nil {
 				log.Printf("SSE update write failed trace_id=%s err=%v", traceID, err)
 				return
 			}
