@@ -5,6 +5,13 @@
 FlowPay simulates how modern payment platforms process payments, apply promotional offers, publish domain events, recover from failures and maintain financial correctness under retries and concurrent workloads.
 
 ---
+# Use of AI
+
+AI was used as an engineering assistant throughout the project for research, debugging, documentation and exploring implementation approaches. **All coding, architectural decisions, implementation, testing and validation were reviewed and driven by me.**
+
+> 🤖 **Fun fact:** This README was also generated with AI 😃 
+
+---
 
 ## Tech Stack
 
@@ -23,11 +30,12 @@ FlowPay simulates how modern payment platforms process payments, apply promotion
 | CI/CD | GitHub Actions |
 | Deployment | EC2-based on-demand deployment |
 
+
 ---
 
 # Architecture
 
-```text
+```
                          +----------------------+
                          |    React Frontend    |
                          +----------+-----------+
@@ -93,6 +101,10 @@ FlowPay simulates how modern payment platforms process payments, apply promotion
                          | Grafana              |
                          | Loki / Promtail      |
                          +----------------------+
+
+
+```
+---
 
 # Highlights
 
