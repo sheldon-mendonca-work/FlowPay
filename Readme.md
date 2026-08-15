@@ -4,33 +4,106 @@
 
 FlowPay simulates how modern payment platforms process payments, apply promotional offers, publish domain events, recover from failures, and maintain financial correctness under retries and concurrent workloads.
 
+## Deployment
+
+FlowPay is currently deployed using an **on-demand EC2 instance** rather than running continuously.
+
+The deployment controller starts the application infrastructure when it is needed and can stop the instance after a period of inactivity. This keeps the infrastructure cost low while still providing a real cloud deployment for the system.
+
+Because the application is started on demand, the first request after a period of inactivity may take some time while the EC2 instance and application services start.
+
+The current deployment intentionally does **not use Kubernetes/EKS**. In a production environment at larger scale, Kubernetes would be a natural choice for container orchestration, service scheduling, health management, scaling, and self-healing. For this project, the simpler EC2-based deployment provides a better cost/complexity tradeoff while allowing the focus to remain on distributed systems, concurrency, reliability, and financial consistency.
+
+The services themselves remain containerized, so the architecture can be migrated to a container orchestration platform without fundamentally changing the application architecture.
+
+---
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React, TypeScript |
+| Backend | Go |
+| API | HTTP/REST, Server-Sent Events (SSE) |
+| Messaging | Apache Kafka |
+| Database | PostgreSQL |
+| Cache / Distributed State | Redis |
+| Observability | Prometheus, Grafana, Loki, Promtail |
+| Containerization | Docker, Docker Compose |
+| Cloud | AWS EC2, Elastic IP |
+| Reverse Proxy | Nginx |
+| CI/CD | GitHub Actions |
+| Deployment | EC2-based on-demand deployment |
+
 ---
 
 # Architecture
 
 ```text
-                 +----------------------+
-                 |   React Frontend     |
-                 +----------+-----------+
-                            |
-                      API Gateway
-                            |
-        +-------------------+-------------------+
-        |                   |                   |
- Payment Service     Account/Auth Service   Offer Service
-        |                   |                   |
-        +-------------------+-------------------+
-                            |
-                       PostgreSQL
-                            |
-                 Transactional Outbox
-                            |
-                          Kafka
-                            |
-                 Payment Executor Service
-```
+                         +----------------------+
+                         |    React Frontend    |
+                         +----------+-----------+
+                                    |
+                                    v
+                         +----------------------+
+                         |     API Gateway      |
+                         +----------+-----------+
+                                    |
+             +----------------------+----------------------+
+             |                      |                      |
+             v                      v                      v
+    +----------------+     +----------------+     +----------------+
+    | Payment        |     | Account/Auth   |     | Offer          |
+    | Service        |     | Service        |     | Service        |
+    +-------+--------+     +-------+--------+     +-------+--------+
+            |                      |                      |
+            +----------------------+----------------------+
+                                   |
+                                   v
+                          Transactional Outbox
+                                    |
+                                    v
+                         +----------------------+
+                         |        Kafka         |
+                         |   Domain Events      |
+                         +----------+-----------+
+                                    |
+                                    v
+                +-------------------+-------------------+
+                |                   |                   |
+                v                   v                   v
+       +----------------+  +----------------+  +----------------+
+       | Payment        |  | Notification   |  | Other          |
+       | Executor       |  | Service / SSE  |  | Consumers      |
+       +----------------+  +----------------+  +----------------+
+                |                   |                   |
+                v                   v                   v
+                +-------------------+-------------------+
+                         +----------------------+
+                         |     PostgreSQL       |
+                         |   Financial State    |
+                         +----------+-----------+
+                                    |
+                +--------------------------------------+
+                |              Workers                  |
+                |--------------------------------------|
+                | Outbox Publisher                      |
+                | Offer Outbox Publisher                |
+                | Offer Expiry Worker                   |
+                +--------------------------------------+
 
----
+                         +----------------------+
+                         |        Redis         |
+                         | Cache / Idempotency  |
+                         | Rate Limiting        |
+                         +----------------------+
+
+                         +----------------------+
+                         |    Observability     |
+                         |----------------------|
+                         | Prometheus           |
+                         | Grafana              |
+                         | Loki / Promtail      |
+                         +----------------------+
 
 # Highlights
 
@@ -47,41 +120,45 @@ FlowPay simulates how modern payment platforms process payments, apply promotion
 
 ---
 
-# Tech Stack
-
-### Backend
-
-- Go
-- PostgreSQL
-- Kafka (KRaft)
-- Redis
-
-### Infrastructure
-
-- Docker Compose
-- Prometheus
-- Grafana
-- Jaeger
-
-### Frontend
-
-- React
-- TypeScript
-- Tailwind CSS
-
----
-
 # Services
 
-| Service | Purpose |
-|----------|---------|
-| API Gateway | Entry point for frontend requests and routing |
-| Account Service | Account, company, and user management |
-| Auth Service | JWT authentication, refresh tokens, demo login |
-| Payment Service | Payment APIs with idempotent request handling |
-| Payment Executor | Kafka consumer that executes payments asynchronously |
-| Offer Service | Offer creation, reservation, redemption, and expiry |
-| Reconciliation Service | Detects inconsistencies across payments, transactions, idempotency records, and outbox events |
+## API Gateway
+The entry point for client requests. Handles routing, request-level concerns, and provides a single API surface to the frontend.
+
+## Payment Service
+Owns payment creation and payment lifecycle operations, including idempotency and transactional persistence.
+
+## Account / Auth Services
+Manage account-related operations and authentication/authorization concerns.
+
+## Offer Service
+Handles promotional offer reservation, redemption, idempotency, and expiry.
+
+## PostgreSQL
+The source of truth for strongly consistent financial state including payments, accounts, transactions and offer state.
+
+## Redis
+Used for low-latency distributed state such as caching, idempotency/rate-limiting use cases and other data that does not require PostgreSQL-level durability.
+
+## Kafka
+Provides asynchronous communication between services and decouples payment processing from downstream consumers.
+
+## Transactional Outbox
+Ensures domain events are persisted atomically with the corresponding database transaction before being published to Kafka.
+
+## Workers
+Background workers handle asynchronous processing such as:
+
+Outbox event publishing
+Offer outbox publishing
+Offer expiry
+Other scheduled/background operations
+
+## Payment Executor
+Consumes payment events and performs downstream payment execution and financial processing.
+
+## Notification Service
+Consumes domain events and maintains payment timelines. The frontend can subscribe through Server-Sent Events (SSE) to observe payment progress in real time.
 
 ---
 
@@ -227,52 +304,7 @@ Metrics follow the RED methodology:
 - **Errors**
 - **Duration**
 
----
-
-# Running Locally
-
-```bash
-docker compose up -d
-
-# Start individual services
-go run payment-service
-go run payment-executor
-go run account-service
-go run auth-service
-go run offer-service
-go run reconciliation-service
-```
-
----
-
-# Roadmap
-
-## Completed
-
-- Payment Service
-- Kafka Event Pipeline
-- Transactional Outbox Pattern
-- Payment Executor
-- Offer Engine
-- Account Service
-- Authentication
-- Reconciliation Service
-
-## In Progress
-
-- Frontend Integration
-- API Gateway Routing
-
-## Planned
-
-- Dedicated Ledger Service
-- Dedicated Wallet Service
-- Fraud Detection Service
-- Scheduler Service
-- Load Testing
-- Multi-region Architecture
-
----
+--
 
 # Engineering Focus
 
