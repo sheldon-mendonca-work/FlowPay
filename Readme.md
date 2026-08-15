@@ -1,22 +1,11 @@
-# [FlowPay](flowpay-ui.netlify.app)
+# [FlowPay](https://flowpay-ui.netlify.app)
 
-> A production-grade distributed payment platform built to explore fintech architecture, event-driven systems, reliability engineering, and financial consistency.
+> A production-grade distributed payment platform built to explore fintech architecture, event-driven systems, reliability engineering and financial consistency.
 
-FlowPay simulates how modern payment platforms process payments, apply promotional offers, publish domain events, recover from failures, and maintain financial correctness under retries and concurrent workloads.
-
-## Deployment
-
-FlowPay is currently deployed using an **on-demand EC2 instance** rather than running continuously.
-
-The deployment controller starts the application infrastructure when it is needed and can stop the instance after a period of inactivity. This keeps the infrastructure cost low while still providing a real cloud deployment for the system.
-
-Because the application is started on demand, the first request after a period of inactivity may take some time while the EC2 instance and application services start.
-
-The current deployment intentionally does **not use Kubernetes/EKS**. In a production environment at larger scale, Kubernetes would be a natural choice for container orchestration, service scheduling, health management, scaling, and self-healing. For this project, the simpler EC2-based deployment provides a better cost/complexity tradeoff while allowing the focus to remain on distributed systems, concurrency, reliability, and financial consistency.
-
-The services themselves remain containerized, so the architecture can be migrated to a container orchestration platform without fundamentally changing the application architecture.
+FlowPay simulates how modern payment platforms process payments, apply promotional offers, publish domain events, recover from failures and maintain financial correctness under retries and concurrent workloads.
 
 ---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -115,50 +104,85 @@ The services themselves remain containerized, so the architecture can be migrate
 - Optimistic locking for concurrent offer redemption
 - Lease-based worker coordination
 - Financial consistency through immutable transaction history
-- Structured logging, distributed tracing, and Prometheus metrics
+- Structured logging, distributed tracing and Prometheus metrics
 - Failure-first system design
+
+---
+
+## Deployment
+
+FlowPay is currently deployed using an **on-demand EC2 instance** rather than running continuously.
+
+The deployment controller starts the application infrastructure when it is needed and can stop the instance after a period of inactivity. This keeps the infrastructure cost low while still providing a real cloud deployment for the system.
+
+Because the application is started on demand, the first request after a period of inactivity may take some time while the EC2 instance and application services start.
+
+The current deployment intentionally does **not use Kubernetes/EKS**. In a production environment at larger scale, Kubernetes would be a natural choice for container orchestration, service scheduling, health management, scaling and self-healing. For this project, the simpler EC2-based deployment provides a better cost/complexity tradeoff while allowing the focus to remain on distributed systems, concurrency, reliability and financial consistency.
+
+The services themselves remain containerized, so the architecture can be migrated to a container orchestration platform without fundamentally changing the application architecture.
 
 ---
 
 # Services
 
 ## API Gateway
-The entry point for client requests. Handles routing, request-level concerns, and provides a single API surface to the frontend.
+
+The entry point for client requests. Handles routing, request-level concerns, authentication-related middleware and provides a unified API surface to the frontend.
 
 ## Payment Service
-Owns payment creation and payment lifecycle operations, including idempotency and transactional persistence.
 
-## Account / Auth Services
-Manage account-related operations and authentication/authorization concerns.
+Owns payment creation and lifecycle operations, including idempotency, validation, transactional persistence and payment state management.
+
+## Account Service
+
+Manages user and company accounts and account-related operations.
+
+## Auth Service
+
+Handles authentication and authorization, including JWT access tokens, refresh tokens, logout and demo authentication flows.
 
 ## Offer Service
-Handles promotional offer reservation, redemption, idempotency, and expiry.
 
-## PostgreSQL
-The source of truth for strongly consistent financial state including payments, accounts, transactions and offer state.
-
-## Redis
-Used for low-latency distributed state such as caching, idempotency/rate-limiting use cases and other data that does not require PostgreSQL-level durability.
-
-## Kafka
-Provides asynchronous communication between services and decouples payment processing from downstream consumers.
-
-## Transactional Outbox
-Ensures domain events are persisted atomically with the corresponding database transaction before being published to Kafka.
-
-## Workers
-Background workers handle asynchronous processing such as:
-
-Outbox event publishing
-Offer outbox publishing
-Offer expiry
-Other scheduled/background operations
+Manages promotional offers, including creation, reservation, redemption, eligibility, redemption limits and expiry.
 
 ## Payment Executor
-Consumes payment events and performs downstream payment execution and financial processing.
+
+Consumes payment events from Kafka and performs asynchronous payment execution and downstream financial processing.
 
 ## Notification Service
+
 Consumes domain events and maintains payment timelines. The frontend can subscribe through Server-Sent Events (SSE) to observe payment progress in real time.
+
+## Workers
+
+Background workers handle asynchronous and scheduled processing:
+
+- Outbox event publishing
+- Offer outbox publishing
+- Offer expiry
+- Other background operations
+
+## PostgreSQL
+
+The primary source of truth for strongly consistent financial state, including payments, accounts, transactions, offers, idempotency records and outbox events.
+
+## Redis
+
+Provides low-latency distributed state for use cases such as caching, rate limiting and other ephemeral coordination that does not require PostgreSQL-level durability.
+
+## Kafka
+
+Provides asynchronous event streaming between services and decouples payment processing from downstream consumers.
+
+## Observability Stack
+
+FlowPay uses:
+
+- Prometheus for metrics collection
+- Grafana for dashboards
+- Loki for log aggregation
+- Promtail for log shipping
+- Distributed tracing for request/event correlation
 
 ---
 
@@ -166,17 +190,21 @@ Consumes domain events and maintains payment timelines. The frontend can subscri
 
 ## Reliability
 
-- Idempotency Keys
-- Retry-safe APIs
-- Crash Recovery
-- Replay-safe Consumers
-- Optimistic Locking
+ - Idempotency keys
+ -  Retry-safe APIs
+ -  Crash recovery
+ -  Replay-safe consumers
+ -  Consumer deduplication
+ -  Optimistic locking
+ -  Health checks
+ -  Graceful service startup
 
 ## Event-Driven Architecture
 
 - Kafka Event Streaming
 - Transactional Outbox Pattern
 - At-Least-Once Delivery
+- Asynchronous consumers
 - Consumer Deduplication
 
 ## Financial Consistency
@@ -184,13 +212,18 @@ Consumes domain events and maintains payment timelines. The frontend can subscri
 - Atomic payment execution
 - Immutable transaction history
 - Controlled payment state transitions
+- Transactional persistence
+- Reconciliation of financial state
 
-## Scalability
+## Concurrency & Scalability
 
 - Asynchronous processing
 - Lease-based worker coordination
 - Eventual consistency
+- Distributed coordination
 - Service isolation
+- Redis-backed coordination
+- Background workers
 
 ## Observability
 
@@ -201,19 +234,19 @@ Consumes domain events and maintains payment timelines. The frontend can subscri
 
 ---
 
+
 # Features
 
 ## Payment Processing
 
 - Payment creation API
 - Idempotent payment execution
-- Asynchronous execution via Kafka
+- Asynchronous execution through Kafka
 - Transaction history
 - Failure recovery
 - Duplicate request protection
 - Replay-safe event handling
-
----
+- Payment processing timeline through SSE
 
 ## Offer Engine
 
@@ -237,8 +270,6 @@ Features:
 - Optimistic locking
 - Inventory-safe redemption workflow
 
----
-
 ## Authentication
 
 - User registration
@@ -248,16 +279,12 @@ Features:
 - Demo account login
 - Company login
 
----
-
 ## Account Management
 
 - Account management
 - Company management
 - User management
 - Seeded demo accounts
-
----
 
 ## Reconciliation
 
@@ -268,15 +295,15 @@ Detects inconsistencies between:
 - Idempotency records
 - Outbox events
 
-Provides both individual and bulk reconciliation endpoints.
+Provides individual and bulk reconciliation endpoints.
 
 ---
 
 # Reliability Guarantees
 
-FlowPay is designed assuming failures are normal.
+FlowPay is designed under the assumption that **failures are normal rather than exceptional**.
 
-The system safely handles:
+The system is designed to safely handle:
 
 - Duplicate HTTP requests
 - Duplicate Kafka events
@@ -287,37 +314,46 @@ The system safely handles:
 - Concurrent offer redemption
 - Network interruptions
 
+These guarantees are implemented through mechanisms such as idempotency keys, transactional outbox, consumer deduplication, optimistic locking, retries and reconciliation.
+
 ---
 
 # Observability
 
-Every service emits:
+Every service exposes operational signals including:
 
 - Structured JSON logs
 - Request IDs
 - Trace IDs
 - Prometheus metrics
 
-Metrics follow the RED methodology:
+Metrics follow the **RED methodology**:
 
-- **Rate**
-- **Errors**
-- **Duration**
+- **Rate** — request/event throughput
+- **Errors** — failures and error rates
+- **Duration** — request and dependency latency
 
---
+The observability stack provides dashboards for service health, business operations, dependencies, runtime behavior and recent errors.
+
+---
 
 # Engineering Focus
 
-FlowPay is designed as a hands-on study of modern distributed payment systems, with emphasis on:
+FlowPay is a hands-on exploration of the engineering problems behind distributed payment systems.
 
-- Event-driven architectures
+The project focuses on:
+
+- Event-driven architecture
 - Distributed transaction patterns
-- Financial consistency guarantees
-- Reliability engineering
+- Financial consistency
+- Idempotency
+- Concurrency
 - Failure recovery
-- High-concurrency systems
+- Reliability engineering
 - Production-grade observability
 - System evolution and scalability
+
+Rather than optimizing for infrastructure complexity, the project focuses on understanding the **distributed-system behavior and correctness guarantees** underneath a payment platform.
 
 ---
 
@@ -329,7 +365,8 @@ FlowPay is designed as a hands-on study of modern distributed payment systems, w
 - Scheduled financial workflows
 - Advanced reconciliation automation
 - Chaos testing
-- Horizontal scaling
+- Horizontal service scaling
 - Multi-region deployment
+
 - Exactly-once effect patterns
 - Kubernetes deployment
