@@ -46,6 +46,7 @@ func main() {
 	heartbeatNotifier := heartbeat.New(cfg.DeploymentControllerURL + "/deployment/heartbeat")
 	withHeartbeat := heartbeatNotifier.Middleware
 
+	log.Println("Deployment URL - " + cfg.DeploymentControllerURL)
 	router := httpx.NewRouter()
 
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {

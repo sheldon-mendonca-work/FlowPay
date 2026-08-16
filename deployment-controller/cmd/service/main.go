@@ -72,6 +72,7 @@ func main() {
 
 	corsMiddleware := middleware.CORS(cfg.AllowedOrigins)
 
+	log.Println("Version Deployed : 2")
 	log.Println("Deployment Controller service running on :" + port)
 	log.Fatal(http.ListenAndServe(":"+port, corsMiddleware(mux)))
 

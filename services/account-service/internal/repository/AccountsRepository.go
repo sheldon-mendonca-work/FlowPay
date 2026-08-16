@@ -54,23 +54,45 @@ func (r *AccountsRepository) FindByPaymentHandle(ctx context.Context, paymentHan
 	return &a, nil
 }
 
-func (r *AccountsRepository) ListPaged(ctx context.Context, excludeAccountID, search string, page, pageSize int) ([]dto.AccountListItem, int, error) {
+func (r *AccountsRepository) ListPaged(
+	ctx context.Context,
+	excludeAccountID,
+	search string,
+	page,
+	pageSize int,
+) ([]dto.AccountListItem, int, error) {
 	searchPattern := "%" + search + "%"
 	offset := page * pageSize
 
 	var total int
 	err := r.db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM accounts
-		WHERE account_type = 'USER' AND id != $1 AND account_name ILIKE $2
+		SELECT COUNT(*)
+		FROM accounts
+		WHERE account_type = 'USER'
+		  AND id != $1
+		  AND (
+		      account_name ILIKE $2
+		      OR payment_handle ILIKE $2
+		  )
 	`, excludeAccountID, searchPattern).Scan(&total)
 	if err != nil {
 		return nil, 0, err
 	}
 
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, account_name, payment_handle, currency FROM accounts
-		WHERE account_type = 'USER' AND id != $1 AND account_name ILIKE $2
-		ORDER BY account_name
+		SELECT
+			id,
+			account_name,
+			payment_handle,
+			currency
+		FROM accounts
+		WHERE account_type = 'USER'
+		  AND id != $1
+		  AND (
+		      account_name ILIKE $2
+		      OR payment_handle ILIKE $2
+		  )
+		ORDER BY account_name, id
 		LIMIT $3 OFFSET $4
 	`, excludeAccountID, searchPattern, pageSize, offset)
 	if err != nil {
@@ -78,13 +100,26 @@ func (r *AccountsRepository) ListPaged(ctx context.Context, excludeAccountID, se
 	}
 	defer rows.Close()
 
-	items := []dto.AccountListItem{}
+	items := make([]dto.AccountListItem, 0, pageSize)
+
 	for rows.Next() {
 		var item dto.AccountListItem
-		if err := rows.Scan(&item.AccountID, &item.AccountName, &item.PaymentHandle, &item.Currency); err != nil {
+
+		if err := rows.Scan(
+			&item.AccountID,
+			&item.AccountName,
+			&item.PaymentHandle,
+			&item.Currency,
+		); err != nil {
 			return nil, 0, err
 		}
+
 		items = append(items, item)
 	}
-	return items, total, rows.Err()
+
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+
+	return items, total, nil
 }

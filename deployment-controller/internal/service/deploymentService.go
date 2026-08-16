@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	awsec2 "flowpay/deployment-controller/internal/aws"
@@ -25,6 +26,8 @@ type DeploymentService struct {
 	pollInterval time.Duration
 	healthPort   string
 	healthClient *http.Client
+
+	lifecycleMu sync.Mutex
 }
 
 func NewDeploymentService(ec2Client awsec2.EC2Client, deploymentState *state.DeploymentState, idleTimeout, pollInterval time.Duration, healthPort string) *DeploymentService {
@@ -48,6 +51,9 @@ func NewDeploymentService(ec2Client awsec2.EC2Client, deploymentState *state.Dep
 //     instance is running and its /health endpoint returns 200, then
 //     returns RUNNING with the public IP.
 func (s *DeploymentService) StartInstance(ctx context.Context) (StatusResponse, error) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(ctx, maxWait)
 	defer cancel()
 
@@ -58,38 +64,67 @@ func (s *DeploymentService) StartInstance(ctx context.Context) (StatusResponse, 
 
 	switch info.State {
 	case awsec2.StateRunning:
-		return StatusResponse{Status: StateRunning, PublicIP: info.PublicIP}, nil
+		s.state.SetLifecycle(state.Running)
+
+		// Explicit start is activity.
+		s.Heartbeat()
+
+		return StatusResponse{
+			Status:   StateRunning,
+			PublicIP: info.PublicIP,
+		}, nil
+
 	case awsec2.StatePending:
-		return StatusResponse{Status: StateStarting}, nil
+		s.state.SetLifecycle(state.Starting)
+
+		return StatusResponse{
+			Status: StateStarting,
+		}, nil
+
 	case awsec2.StateStopping:
-		return StatusResponse{Status: StateStopping}, nil
+		s.state.SetLifecycle(state.Stopping)
+
+		return StatusResponse{
+			Status: StateStopping,
+		}, nil
+
+	case awsec2.StateStopped:
+		// Important: mark STARTING BEFORE calling AWS.
+		s.state.SetLifecycle(state.Starting)
+
+		if err := s.ec2.Start(ctx); err != nil {
+			s.state.SetLifecycle(state.Stopped)
+			return StatusResponse{}, err
+		}
+
+		publicIP, err := s.waitForState(ctx, awsec2.StateRunning)
+		if err != nil {
+			s.state.SetLifecycle(state.Stopped)
+			return StatusResponse{}, err
+		}
+
+		if err := s.waitForHealthy(ctx, publicIP); err != nil {
+			s.state.SetLifecycle(state.Stopped)
+			return StatusResponse{}, err
+		}
+
+		s.state.SetLifecycle(state.Running)
+		s.Heartbeat()
+
+		return StatusResponse{
+			Status:   StateRunning,
+			PublicIP: publicIP,
+		}, nil
+
+	default:
+		return StatusResponse{}, fmt.Errorf(
+			"unsupported EC2 state: %s",
+			info.State,
+		)
 	}
-
-	if err := s.ec2.Start(ctx); err != nil {
-		return StatusResponse{}, err
-	}
-
-	publicIP, err := s.waitForState(ctx, awsec2.StateRunning)
-	if err != nil {
-		return StatusResponse{}, err
-	}
-
-	if err := s.waitForHealthy(ctx, publicIP); err != nil {
-		return StatusResponse{}, err
-	}
-
-	s.Heartbeat()
-
-	return StatusResponse{Status: StateRunning, PublicIP: publicIP}, nil
 }
 
-// StopInstance ensures the instance is stopped, stopping it if necessary.
-//
-//   - stopped: returns immediately.
-//   - stopping: returns immediately as STOPPING (already underway).
-//   - running/pending: calls StopInstances, then blocks polling AWS until
-//     the instance is stopped.
-func (s *DeploymentService) StopInstance(ctx context.Context) (StatusResponse, error) {
+func (s *DeploymentService) stopInstance(ctx context.Context) (StatusResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, maxWait)
 	defer cancel()
 
@@ -100,20 +135,51 @@ func (s *DeploymentService) StopInstance(ctx context.Context) (StatusResponse, e
 
 	switch info.State {
 	case awsec2.StateStopped:
-		return StatusResponse{Status: StateStopped}, nil
+		s.state.SetLifecycle(state.Stopped)
+
+		return StatusResponse{
+			Status: StateStopped,
+		}, nil
+
 	case awsec2.StateStopping:
-		return StatusResponse{Status: StateStopping}, nil
+		s.state.SetLifecycle(state.Stopping)
+
+		return StatusResponse{
+			Status: StateStopping,
+		}, nil
 	}
 
+	s.state.SetLifecycle(state.Stopping)
+
 	if err := s.ec2.Stop(ctx); err != nil {
+		s.state.SetLifecycle(state.Running)
 		return StatusResponse{}, err
 	}
 
 	if _, err := s.waitForState(ctx, awsec2.StateStopped); err != nil {
+		// We don't necessarily know the final state here.
+		// Don't blindly mark it STOPPED.
 		return StatusResponse{}, err
 	}
 
-	return StatusResponse{Status: StateStopped}, nil
+	s.state.SetLifecycle(state.Stopped)
+
+	return StatusResponse{
+		Status: StateStopped,
+	}, nil
+}
+
+// StopInstance ensures the instance is stopped, stopping it if necessary.
+//
+//   - stopped: returns immediately.
+//   - stopping: returns immediately as STOPPING (already underway).
+//   - running/pending: calls StopInstances, then blocks polling AWS until
+//     the instance is stopped.
+func (s *DeploymentService) StopInstance(ctx context.Context) (StatusResponse, error) {
+	s.lifecycleMu.Lock()
+	defer s.lifecycleMu.Unlock()
+
+	return s.stopInstance(ctx)
 }
 
 // Status is a read-only snapshot: it never starts or stops the instance. A
@@ -191,10 +257,16 @@ func (s *DeploymentService) MonitorIdle(ctx context.Context, interval time.Durat
 		select {
 		case <-ctx.Done():
 			return
+
 		case <-ticker.C:
+			if s.state.Lifecycle() != state.Running {
+				continue
+			}
+
 			if time.Since(s.state.LastHeartbeat()) <= s.idleTimeout {
 				continue
 			}
+
 			if _, err := s.StopInstance(ctx); err != nil {
 				log.Printf("idle monitor: failed to stop instance: %v", err)
 			}
