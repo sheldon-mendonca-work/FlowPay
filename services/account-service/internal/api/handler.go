@@ -615,6 +615,14 @@ func (h *Handler) HandleListUserAccounts(w http.ResponseWriter, r *http.Request)
 	if req.PageSize == 0 {
 		req.PageSize = 50
 	}
+	logger.LogEvent(r.Context(), "INFO", constants.ServiceName, "accounts_list_body", logger.Fields{
+		"http_method":       r.Method,
+		"http_path":         r.URL.Path,
+		"request":           req,
+		"page_size":         req.PageSize,
+		"caller_account_id": callerAccountID,
+		"error_type":        accountErrors.ErrorTypeNone,
+	})
 
 	ctx, cancel := context.WithTimeout(r.Context(), 16500*time.Millisecond)
 	defer cancel()
