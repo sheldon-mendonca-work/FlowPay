@@ -14,6 +14,7 @@ import (
 	"flowpay/account-service/internal/dto"
 	accountErrors "flowpay/account-service/internal/errors"
 	"flowpay/account-service/internal/repository"
+	"flowpay/pkg/observability/logger"
 	"flowpay/pkg/observability/metrics"
 	metricconstants "flowpay/pkg/observability/metrics/metricConstants"
 
@@ -503,7 +504,15 @@ func (s *AccountService) GetDefaultList(ctx context.Context, callerAccountID, li
 	return resp, nil
 }
 
-func (s *AccountService) ListUserAccounts(ctx context.Context, callerAccountID, search string, page, pageSize int) (*dto.ListAccountsResponse, error) {
+func (s *AccountService) ListUserAccounts(ctx context.Context, callerAccountID string, search string, page int, pageSize int) (*dto.ListAccountsResponse, error) {
+	logger.LogEvent(ctx, "INFO", constants.ServiceName, "accounts_list_called", logger.Fields{
+		"search":            search,
+		"page":              page,
+		"page_size":         pageSize,
+		"caller_account_id": callerAccountID,
+		"error_type":        accountErrors.ErrorTypeNone,
+	})
+
 	accounts, total, err := metrics.MeasureDB3(constants.ServiceName, "GetDefaultList.defaultCredsRepo.ListPaged", metricconstants.AccountRepoDB, func() ([]dto.AccountListItem, int, error) {
 		return s.accountRepo.ListPaged(ctx, callerAccountID, search, page, pageSize)
 	})
